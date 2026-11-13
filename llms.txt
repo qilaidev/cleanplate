@@ -1,0 +1,68 @@
+# Cleanplate
+
+> Cleanplate is a self-hosted async video watermark detection, ROI inpainting, and automated QA pipeline node (FastAPI + ComfyUI + FFmpeg) designed for automated media workflows.
+
+Cleanplate accepts video jobs over HTTP, detects static or moving watermarks automatically without manual masking, plans ROI crops and 81-frame (`4k+1`) chunks, runs an inpainting fallback chain (`minimax_remover` -> `comfy_diffueraser`), stitches audio/video seamlessly, verifies output quality against the input mask, and delivers a structured `report` via polling or HMAC-SHA256 signed webhooks.
+
+**Compliance & Licensing**:
+- Service code: [MIT License](https://github.com/qilaidev/cleanplate/blob/main/LICENSE) (`Copyright (c) 2026 qilaidev`).
+- Authorized use only: Only process media you own or have explicit rights to modify.
+- Model weights: Default primary inpainting weights (`MiniMax-Remover`) are **CC-BY-NC-4.0** (non-commercial) and `ProPainter` priors are **S-Lab License 1.0** (non-commercial). Commercial deployments must obtain proper weight licenses or swap in commercially licensed weights.
+
+## Canonical Links
+
+- Repository: https://github.com/qilaidev/cleanplate
+- English README: https://github.com/qilaidev/cleanplate/blob/main/README.en.md
+- Chinese README: https://github.com/qilaidev/cleanplate/blob/main/README.md
+- HTTP API Contract: https://github.com/qilaidev/cleanplate/blob/main/docs/api.md
+- Architecture: https://github.com/qilaidev/cleanplate/blob/main/docs/architecture.md
+- Operations Guide: https://github.com/qilaidev/cleanplate/blob/main/docs/operations.md
+- Model Stack & Licenses: https://github.com/qilaidev/cleanplate/blob/main/docs/model-stack.md
+- Security Policy: https://github.com/qilaidev/cleanplate/blob/main/SECURITY.md
+- Contributing: https://github.com/qilaidev/cleanplate/blob/main/CONTRIBUTING.md
+
+## 6-Stage Processing Pipeline
+
+1. **Ingest Normalization**: Converts VFR, rotated, odd-dimension, or non-`yuv420p` inputs into a constant-frame-rate intermediate via `ffprobe`/`ffmpeg`.
+2. **Detection (Single Pass)**: Runs OpenCV static corner / semi-transparent persistent edge detection (`static_overlay`), falling back to ComfyUI native `SAM 3.1` (`sam3_text`) when `DWM_DETECTOR_MODE=auto` and confidence is uncertain. Returns `NO_WATERMARK_DETECTED` (or `passthrough` if `DWM_NO_WATERMARK_POLICY=passthrough`) when clean, or `DETECTOR_LOW_CONFIDENCE` when uncertain.
+3. **ROI & Chunk Planning**: Plans per-watermark ROI crop windows (`DWM_MINIMAX_ROI_ENABLED=true`) and splits long videos into 81-frame (`4k+1`) chunks (`DWM_CHUNK_FRAMES=81`).
+4. **Inpainting Fallback Chain**: Executes `minimax_remover` (primary) -> `comfy_diffueraser` (secondary) on ComfyUI, or `local_fallback` for pipeline/CI smoke testing.
+5. **Audio/Video Stitch**: Trims chunk overlap frames, remuxes the original audio track, and encodes a unified output container.
+6. **Automated QA & Callback**: Computes `mask_mean_abs_diff` and `residual_overlap`. Rejects unchanged outputs (`INPAINT_NO_EFFECT`) to trigger fallback, flags or fails residual watermarks (`needs_review` / `QA_RESIDUAL_WATERMARK`), persists `report`, and delivers HMAC-SHA256 signed webhook callbacks with exponential backoff.
+
+## HTTP API Endpoints
+
+All `/v1/*` endpoints require `X-API-Key` header (default dev key: `dev-secret-key`, rejected when `DWM_ENV=production`).
+
+- `GET /healthz`: API & SQLite DB liveness probe.
+- `GET /v1/providers`: Probe `installed`, `runnable`, `missing_models`, and `workflow_ready` per provider.
+- `POST /v1/jobs`: Submit a `video` job (`multipart/form-data` `file` or `input_path` under `DWM_STORAGE_ROOT`, `provider=auto|minimax_remover|comfy_diffueraser|local_fallback`, `quality_mode=fast|balanced|quality|corner_hq`, `priority`, `callback_url`, `callback_secret`, optional `Idempotency-Key` header).
+- `GET /v1/jobs`: Paginated job list (`status`, `provider`, `media_type`, `page`, `page_size`).
+- `GET /v1/jobs/{job_id}`: Job status, `provider_selected`, `degraded`, `needs_review`, `error_code`, and `report`.
+- `GET /v1/jobs/{job_id}/result`: Result metadata and `download_url`.
+- `GET /v1/jobs/{job_id}/artifact`: Download output video file.
+- `POST /v1/jobs/{job_id}/cancel`: Cancel a `queued` job.
+
+## Error Codes
+
+- `400`: `VALIDATION_ERROR`, `MEDIA_TYPE_NOT_SUPPORTED`, `FILE_TOO_LARGE`, `VIDEO_TOO_LONG`, `FILE_NOT_FOUND`
+- `401`: `AUTH_ERROR`
+- `404`: `JOB_NOT_FOUND`, `FILE_NOT_FOUND`
+- `409`: `JOB_NOT_CANCELABLE`, `JOB_NOT_READY`, `IDEMPOTENCY_CONFLICT`
+- `410`: `ARTIFACT_MISSING`
+- `422` (job-level): `NO_WATERMARK_DETECTED`, `DETECTOR_LOW_CONFIDENCE`
+- `429`: `RATE_LIMITED`
+- `500` (job-level / server): `INPAINT_NO_EFFECT`, `QA_RESIDUAL_WATERMARK`, `MEDIA_PROCESSING_FAILED`, `PROVIDER_RUN_FAILED`, `JOB_RETRY_EXHAUSTED`, `INTERNAL_ERROR`
+- `503`: `PROVIDER_NOT_AVAILABLE`
+
+## QA & Job Report Schema
+
+`report` is populated on job completion or failure:
+- `chain`: ordered list of attempted providers (e.g. `["minimax_remover", "comfy_diffueraser"]`)
+- `input`: normalized media metadata (`width`, `height`, `fps`, `frame_count`, `duration`, `has_audio`, `codec`, `pix_fmt`, `rotation`, `variable_frame_rate`, `normalized`, `normalize_reasons`)
+- `detection`: `detector`, `scene_type` (`corner|static_logo|moving_overlay|sam3_text|none|complex|unknown`), `confidence` (`high|medium|low`), `mask_ratio`, `region_count`, `bbox`, `regions`, `temporal`
+- `plan`: `chunks`, `chunk_frames`
+- `attempts`: array of `{provider, status, error_code, workflow_name, roi, qa}`
+- `action`: `inpainted` | `passthrough` | `copied`
+- `qa`: `{status: "pass"|"unchanged"|"residual_suspected"|"skipped", mask_mean_abs_diff, residual_overlap}`
+- `needs_review`: boolean indicating whether downstream should manually review or discard the artifact

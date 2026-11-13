@@ -1,0 +1,61 @@
+# license / commercial_use are checked by `cleanplate-worker --doctor` (licenses section).
+# commercial_use: false means the weights may not be used for commercial work; null = unclear, verify.
+# Re-verified 2026-09-30 against each Hugging Face / GitHub model card.
+models:
+  - name: diffueraser-unet-brushnet
+    required: true
+    providers: [comfy_diffueraser]
+    description: DiffuEraser custom node core weights
+    expected_path: .runtime/ComfyUI/models/DiffuEraser
+    source: https://huggingface.co/lixiaowen/diffuEraser
+    license: apache-2.0
+    commercial_use: true
+  - name: sd-vae-ft-mse
+    required: true
+    providers: [comfy_diffueraser]
+    description: Recommended VAE for DiffuEraser
+    expected_path: .runtime/ComfyUI/models/vae/sd-vae-ft-mse.safetensors
+    filename: diffusion_pytorch_model.safetensors
+    source: https://huggingface.co/stabilityai/sd-vae-ft-mse
+    license: mit
+    commercial_use: true
+  - name: pcm-sd15-lora
+    required: true
+    providers: [comfy_diffueraser]
+    description: PCM sd15 LoRA
+    expected_path: .runtime/ComfyUI/models/loras/pcm_sd15_smallcfg_2step_converted.safetensors
+    source: https://huggingface.co/wangfuyun/PCM_Weights/tree/main/sd15
+    license: unspecified (no license in model card)
+    commercial_use: null
+  - name: propainter
+    required: true
+    providers: [comfy_diffueraser]
+    description: ProPainter prior model bundle
+    expected_path: .runtime/ComfyUI/models/DiffuEraser/propainter
+    source: https://github.com/sczhou/ProPainter/releases/tag/v0.1.0
+    license: S-Lab License 1.0 (non-commercial)
+    commercial_use: false
+  - name: clip-l
+    required: true
+    providers: [comfy_diffueraser]
+    description: ComfyUI clip_l text encoder
+    expected_path: .runtime/ComfyUI/models/clip/clip_l.safetensors
+    source: https://huggingface.co/comfyanonymous/flux_text_encoders
+    license: apache-2.0
+    commercial_use: true
+  - name: minimax-remover
+    required: true
+    providers: [minimax_remover]
+    description: MiniMax-Remover VAE, transformer and scheduler (2025 video object removal)
+    expected_path: .runtime/ComfyUI/models/MiniMax-Remover
+    source: https://huggingface.co/zibojia/minimax-remover
+    license: cc-by-nc-4.0
+    commercial_use: false
+  - name: sam3.1-native
+    required: false
+    providers: [minimax_remover]
+    description: SAM 3.1 multiplex checkpoint for the native ComfyUI SAM3 nodes (workflows/sam3_native_api.json)
+    expected_path: .runtime/ComfyUI/models/checkpoints/sam3.1_multiplex_fp16.safetensors
+    source: https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors
+    license: SAM License (Meta)
+    commercial_use: true

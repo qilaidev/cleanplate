@@ -1,0 +1,24 @@
+# Pins reviewed 2026-09-30. ComfyUI must be >= 2026-04-23 (PR #13408) for the native
+# SAM 3.1 nodes used by workflows/sam3_native_api.json. v0.38.1: comfy_extras/nodes_sam3.py
+# is unchanged since v0.35.0; the repo moved to the Comfy-Org organisation.
+# ComfyUI-MiniMax-Remover has had no commits since 2025-06-27 and swallows inference
+# exceptions (returns the input frames); the quality gate in quality_gate.py catches that.
+runtime:
+  python: "3.12"
+repositories:
+  comfyui:
+    url: https://github.com/Comfy-Org/ComfyUI.git
+    ref: 20ca544ee0436721d8eb5f544665e490609f72c8  # v0.38.1
+    target: .runtime/ComfyUI
+  diffueraser:
+    url: https://github.com/smthemex/ComfyUI_DiffuEraser.git
+    ref: c8461876ad092206ccb1f951bb2ef5820ad7028f  # 2026-03-27
+    target: .runtime/ComfyUI/custom_nodes/ComfyUI-DiffuEraser
+  videohelpersuite:
+    url: https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git
+    ref: 4d907bee61e92c2e65af3bd6383a4e4d356126d1  # 2026-09-01, HEAD at 2026-09-30
+    target: .runtime/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite
+  minimax_remover:
+    url: https://github.com/1038lab/ComfyUI-MiniMax-Remover.git
+    ref: 5957d627f8b772149bbdb782037ef4abd9730047  # 2025-06-27, unmaintained
+    target: .runtime/ComfyUI/custom_nodes/ComfyUI-MiniMax-Remover

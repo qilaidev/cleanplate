@@ -1,0 +1,107 @@
+{
+  "1": {
+    "class_type": "VHS_LoadVideoPath",
+    "inputs": {
+      "video": "__INPUT_VIDEO__",
+      "force_rate": 0,
+      "custom_width": 0,
+      "custom_height": 0,
+      "frame_load_cap": 0,
+      "skip_first_frames": 0,
+      "select_every_nth": 1
+    }
+  },
+  "2": {
+    "class_type": "VHS_VideoInfo",
+    "inputs": {
+      "video_info": [
+        "1",
+        3
+      ]
+    }
+  },
+  "3": {
+    "class_type": "VHS_LoadVideoPath",
+    "inputs": {
+      "video": "__MASK_VIDEO__",
+      "force_rate": 0,
+      "custom_width": 0,
+      "custom_height": 0,
+      "frame_load_cap": 0,
+      "skip_first_frames": 0,
+      "select_every_nth": 1
+    }
+  },
+  "4": {
+    "class_type": "ImageToMask",
+    "inputs": {
+      "image": [
+        "3",
+        0
+      ],
+      "channel": "red"
+    }
+  },
+  "5": {
+    "class_type": "MinimaxModelLoader",
+    "inputs": {
+      "scheduler": "Auto",
+      "torch_dtype": "float16",
+      "device": "auto",
+      "local_files_only": false
+    }
+  },
+  "6": {
+    "class_type": "MinimaxVideoRemover",
+    "inputs": {
+      "video_frames": [
+        "1",
+        0
+      ],
+      "masks": [
+        "4",
+        0
+      ],
+      "vae": [
+        "5",
+        0
+      ],
+      "transformer": [
+        "5",
+        1
+      ],
+      "scheduler": [
+        "5",
+        2
+      ],
+      "num_inference_steps": 8,
+      "mask_dilation_iterations": 2,
+      "seed": "__SEED__"
+    }
+  },
+  "7": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "images": [
+        "6",
+        0
+      ],
+      "fps": [
+        "2",
+        0
+      ]
+    }
+  },
+  "8": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "video": [
+        "7",
+        0
+      ],
+      "filename_prefix": "__OUTPUT_PREFIX__",
+      "format": "auto",
+      "codec": "auto"
+    }
+  }
+}

@@ -1,0 +1,8 @@
+id,split,filename,clean_filename,region_filename,watermark_type,position,moving,notes,expected
+simple-tl,simple,simple_top_left.mp4,clean/simple_top_left.mkv,clean/simple_top_left.region.png,static_logo,top_left,false,static opaque top-left block over a moving background,detectable
+simple-br,simple,simple_bottom_right.mp4,clean/simple_bottom_right.mkv,clean/simple_bottom_right.region.png,static_logo,bottom_right,false,static opaque bottom-right block over a moving background,detectable
+medium-translucent,medium,medium_translucent.mp4,clean/medium_translucent.mkv,clean/medium_translucent.region.png,translucent_logo,top_left,false,semi-transparent corner block over a moving background; needs the persistent-edge path,detectable
+medium-drift,medium,medium_drift.mp4,clean/medium_drift.mkv,clean/medium_drift.region.png,moving_logo,top_left,true,"drifting block; static detector must stay low, SAM3 tracking should produce per-frame masks",sam3_or_low
+hard-large,hard,hard_large.mp4,clean/hard_large.mkv,clean/hard_large.region.png,large_overlay,top_band,false,large static band that should trip the area gate,reject
+hard-multi,hard,hard_multi.mp4,clean/hard_multi.mkv,clean/hard_multi.region.png,multi_logo,edges,false,many static edge blocks that should trip the region gate,reject
+hard-center,hard,hard_center.mp4,clean/hard_center.mkv,clean/hard_center.region.png,center_overlap,center,false,large textured overlay covering center and margins,reject

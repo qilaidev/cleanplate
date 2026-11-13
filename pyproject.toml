@@ -1,0 +1,71 @@
+[project]
+name = "cleanplate"
+version = "0.3.0"
+description = "Self-hosted video watermark removal service for automated workflows: auto-detect, inpaint and quality-check via ComfyUI"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [{name = "qilaidev"}]
+requires-python = ">=3.11,<3.13"
+keywords = ["watermark-removal", "video-inpainting", "comfyui", "fastapi", "self-hosted"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Framework :: FastAPI",
+  "Topic :: Multimedia :: Video",
+  "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+]
+dependencies = [
+  "fastapi>=0.115.0",
+  "httpx>=0.28.0",
+  "huggingface_hub>=0.24.0,<1",
+  "numpy>=1.26.0",
+  "opencv-python-headless>=4.9.0",
+  "pyyaml>=6.0.2",
+  "python-multipart>=0.0.20",
+  "uvicorn>=0.35.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.4.0",
+  "ruff>=0.16",
+]
+
+[project.urls]
+Homepage = "https://github.com/qilaidev/cleanplate"
+Repository = "https://github.com/qilaidev/cleanplate"
+Issues = "https://github.com/qilaidev/cleanplate/issues"
+
+[project.scripts]
+cleanplate-api = "wm_platform.cli_api:main"
+cleanplate-worker = "wm_platform.cli_worker:main"
+cleanplate-scout = "wm_platform.model_scout:main"
+
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["eval/dataset"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+# E501: long SQL/log strings; B008: FastAPI Depends()/Form() defaults; E402: tests put src/ on sys.path first.
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402", "B017"]
+"apps/*" = ["E402"]

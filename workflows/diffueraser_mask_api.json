@@ -1,0 +1,163 @@
+{
+  "1": {
+    "class_type": "VHS_LoadVideoPath",
+    "inputs": {
+      "video": "__INPUT_VIDEO__",
+      "force_rate": 0,
+      "custom_width": 0,
+      "custom_height": 0,
+      "frame_load_cap": 0,
+      "skip_first_frames": 0,
+      "select_every_nth": 1
+    }
+  },
+  "2": {
+    "class_type": "VHS_VideoInfo",
+    "inputs": {
+      "video_info": [
+        "1",
+        3
+      ]
+    }
+  },
+  "3": {
+    "class_type": "VHS_LoadVideoPath",
+    "inputs": {
+      "video": "__MASK_VIDEO__",
+      "force_rate": 0,
+      "custom_width": 0,
+      "custom_height": 0,
+      "frame_load_cap": 0,
+      "skip_first_frames": 0,
+      "select_every_nth": 1
+    }
+  },
+  "4": {
+    "class_type": "ImageToMask",
+    "inputs": {
+      "image": [
+        "3",
+        0
+      ],
+      "channel": "red"
+    }
+  },
+  "5": {
+    "class_type": "DiffuEraser_PreData",
+    "inputs": {
+      "images": [
+        "1",
+        0
+      ],
+      "video_mask": [
+        "4",
+        0
+      ],
+      "seg_repo": "__SEG_REPO__"
+    }
+  },
+  "6": {
+    "class_type": "Propainter_Loader",
+    "inputs": {
+      "propainter": "__PROPAINTER_MODEL__",
+      "flow": "__FLOW_MODEL__",
+      "fix_raft": "__FIX_RAFT_MODEL__",
+      "device": "__PROP_DEVICE__"
+    }
+  },
+  "7": {
+    "class_type": "Propainter_Sampler",
+    "inputs": {
+      "model": [
+        "6",
+        0
+      ],
+      "conditioning": [
+        "5",
+        0
+      ],
+      "fps": [
+        "2",
+        0
+      ],
+      "video_length": 10,
+      "mask_dilation_iter": 2,
+      "ref_stride": 10,
+      "neighbor_length": 10,
+      "subvideo_length": 50
+    }
+  },
+  "8": {
+    "class_type": "DiffuEraser_Loader",
+    "inputs": {
+      "vae": "__VAE_MODEL__",
+      "lora": "__LORA_MODEL__"
+    }
+  },
+  "9": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "__CLIP_MODEL__",
+      "type": "stable_diffusion",
+      "device": "default"
+    }
+  },
+  "10": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "9",
+        0
+      ],
+      "text": ""
+    }
+  },
+  "11": {
+    "class_type": "DiffuEraser_Sampler",
+    "inputs": {
+      "model": [
+        "8",
+        0
+      ],
+      "positive": [
+        "10",
+        0
+      ],
+      "conditioning": [
+        "7",
+        0
+      ],
+      "steps": 2,
+      "seed": "__SEED__",
+      "save_result_video": false,
+      "unet_group": 5,
+      "brush_group": 5,
+      "blended": false
+    }
+  },
+  "12": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "images": [
+        "11",
+        0
+      ],
+      "fps": [
+        "2",
+        0
+      ]
+    }
+  },
+  "13": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "video": [
+        "12",
+        0
+      ],
+      "filename_prefix": "__OUTPUT_PREFIX__",
+      "format": "auto",
+      "codec": "auto"
+    }
+  }
+}

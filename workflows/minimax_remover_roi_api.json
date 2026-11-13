@@ -1,0 +1,194 @@
+{
+  "1": {
+    "class_type": "VHS_LoadVideoPath",
+    "inputs": {
+      "video": "__INPUT_VIDEO__",
+      "force_rate": 0,
+      "custom_width": 0,
+      "custom_height": 0,
+      "frame_load_cap": 0,
+      "skip_first_frames": 0,
+      "select_every_nth": 1
+    }
+  },
+  "2": {
+    "class_type": "VHS_VideoInfo",
+    "inputs": {
+      "video_info": [
+        "1",
+        3
+      ]
+    }
+  },
+  "3": {
+    "class_type": "VHS_LoadVideoPath",
+    "inputs": {
+      "video": "__MASK_VIDEO__",
+      "force_rate": 0,
+      "custom_width": 0,
+      "custom_height": 0,
+      "frame_load_cap": 0,
+      "skip_first_frames": 0,
+      "select_every_nth": 1
+    }
+  },
+  "4": {
+    "class_type": "ImageToMask",
+    "inputs": {
+      "image": [
+        "3",
+        0
+      ],
+      "channel": "red"
+    }
+  },
+  "5": {
+    "class_type": "ImageCrop",
+    "inputs": {
+      "image": [
+        "1",
+        0
+      ],
+      "width": "__ROI_W__",
+      "height": "__ROI_H__",
+      "x": "__ROI_X__",
+      "y": "__ROI_Y__"
+    }
+  },
+  "6": {
+    "class_type": "CropMask",
+    "inputs": {
+      "mask": [
+        "4",
+        0
+      ],
+      "x": "__ROI_X__",
+      "y": "__ROI_Y__",
+      "width": "__ROI_W__",
+      "height": "__ROI_H__"
+    }
+  },
+  "7": {
+    "class_type": "MinimaxModelLoader",
+    "inputs": {
+      "scheduler": "Auto",
+      "torch_dtype": "float16",
+      "device": "auto",
+      "local_files_only": false
+    }
+  },
+  "8": {
+    "class_type": "MinimaxVideoRemover",
+    "inputs": {
+      "video_frames": [
+        "5",
+        0
+      ],
+      "masks": [
+        "6",
+        0
+      ],
+      "vae": [
+        "7",
+        0
+      ],
+      "transformer": [
+        "7",
+        1
+      ],
+      "scheduler": [
+        "7",
+        2
+      ],
+      "num_inference_steps": 8,
+      "mask_dilation_iterations": 2,
+      "seed": "__SEED__"
+    }
+  },
+  "9": {
+    "class_type": "GrowMask",
+    "inputs": {
+      "mask": [
+        "6",
+        0
+      ],
+      "expand": "__COMPOSITE_EXPAND__",
+      "tapered_corners": true
+    }
+  },
+  "10": {
+    "class_type": "MaskToImage",
+    "inputs": {
+      "mask": [
+        "9",
+        0
+      ]
+    }
+  },
+  "11": {
+    "class_type": "ImageBlur",
+    "inputs": {
+      "image": [
+        "10",
+        0
+      ],
+      "blur_radius": "__COMPOSITE_FEATHER__",
+      "sigma": 2.5
+    }
+  },
+  "12": {
+    "class_type": "ImageToMask",
+    "inputs": {
+      "image": [
+        "11",
+        0
+      ],
+      "channel": "red"
+    }
+  },
+  "13": {
+    "class_type": "ImageCompositeMasked",
+    "inputs": {
+      "destination": [
+        "1",
+        0
+      ],
+      "source": [
+        "8",
+        0
+      ],
+      "x": "__ROI_X__",
+      "y": "__ROI_Y__",
+      "resize_source": false,
+      "mask": [
+        "12",
+        0
+      ]
+    }
+  },
+  "14": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "images": [
+        "13",
+        0
+      ],
+      "fps": [
+        "2",
+        0
+      ]
+    }
+  },
+  "15": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "video": [
+        "14",
+        0
+      ],
+      "filename_prefix": "__OUTPUT_PREFIX__",
+      "format": "auto",
+      "codec": "auto"
+    }
+  }
+}
