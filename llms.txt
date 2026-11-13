@@ -11,7 +11,7 @@ Also known as: `Cleanplate` (named after the film post-production *clean plate*)
 - **Homepage / Studio Pillar**: https://qilaidav.com/workspace/ (EN: https://qilaidav.com/en/workspace/)
 - **Maintainer / Studio**: qilai (`qilaidav` / `qilaidev`) — https://qilaidav.com
 - **Version**: 0.3.0
-- **License**: MIT (`https://github.com/qilaidev/cleanplate/blob/main/LICENSE`) for service code; default weights: `MiniMax-Remover` (`CC-BY-NC-4.0`), `ProPainter` priors (`S-Lab License 1.0`)
+- **License**: MIT (https://github.com/qilaidev/cleanplate/blob/main/LICENSE) for service code; default weights: `MiniMax-Remover` (`CC-BY-NC-4.0`), `ProPainter` priors (`S-Lab License 1.0`)
 - **Language / Runtime**: Python `>=3.11,<3.13`, `uv`, FastAPI, Uvicorn, SQLite (WAL), OpenCV (`opencv-python-headless`), FFmpeg/ffprobe, ComfyUI `v0.38.1`
 
 ## English Summary
