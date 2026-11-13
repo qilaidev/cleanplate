@@ -1,0 +1,91 @@
+{
+  "@context": "https://doi.org/10.5063/schema/codemeta-2.0",
+  "@type": "SoftwareSourceCode",
+  "name": "cleanplate",
+  "alternateName": [
+    "Cleanplate",
+    "Self-Hosted Video Watermark Removal Pipeline"
+  ],
+  "description": "Self-hosted asynchronous video watermark detection, multi-ROI inpainting, and automated QA pipeline node built on FastAPI, ComfyUI, and FFmpeg. Automatically detects static or moving overlays without manual masking, chunks long clips into 81-frame windows, executes a multi-model inpainting fallback chain, remuxes audio, and delivers outputs and structured JSON reports via polling or HMAC-SHA256 webhooks.",
+  "version": "0.3.0",
+  "codeRepository": "https://github.com/qilaidev/cleanplate",
+  "issueTracker": "https://github.com/qilaidev/cleanplate/issues",
+  "url": "https://qilaidav.com/workspace/",
+  "license": "https://spdx.org/licenses/MIT",
+  "programmingLanguage": [
+    "Python"
+  ],
+  "runtimePlatform": [
+    "Python 3.11 / 3.12",
+    "FastAPI + Uvicorn",
+    "ComfyUI v0.38.1",
+    "FFmpeg"
+  ],
+  "operatingSystem": "Linux / macOS (NVIDIA CUDA GPU required for production AI inference)",
+  "applicationCategory": "MultimediaApplication",
+  "applicationSubCategory": "Automated video watermark detection and inpainting service",
+  "developmentStatus": "active",
+  "inLanguage": [
+    "zh-CN",
+    "en"
+  ],
+  "readme": "https://github.com/qilaidev/cleanplate/blob/main/README.md",
+  "releaseNotes": "https://github.com/qilaidev/cleanplate/blob/main/CHANGELOG.md",
+  "softwareHelp": "https://github.com/qilaidev/cleanplate/blob/main/docs/api.md",
+  "keywords": [
+    "watermark-detection",
+    "watermark-removal",
+    "video-inpainting",
+    "video-processing",
+    "comfyui",
+    "fastapi",
+    "ffmpeg",
+    "async-worker",
+    "self-hosted",
+    "sam3",
+    "python",
+    "sqlite",
+    "ai-pipeline",
+    "computer-vision",
+    "video-editing",
+    "视频去水印",
+    "自托管媒体管线"
+  ],
+  "featureList": [
+    "FFmpeg ingest normalization converting VFR, rotated, odd-dimension, or non-yuv420p inputs to CFR intermediates",
+    "Single-pass automatic watermark detection using CPU OpenCV static/persistent-edge detection with ComfyUI native SAM 3.1 fallback",
+    "Per-watermark 16px-aligned multi-ROI crop chaining and 81-frame (4k+1) chunk planning",
+    "Multi-model inpainting fallback chain (MiniMax-Remover -> DiffuEraser) plus local_fallback for pipeline smoke testing",
+    "Automated post-inpaint QA gate checking mask_mean_abs_diff (INPAINT_NO_EFFECT) and residual_overlap (needs_review / QA_RESIDUAL_WATERMARK)",
+    "Asynchronous FastAPI job queue with SQLite WAL persistence, Idempotency-Key support, per-tenant rate limiting, and HMAC-SHA256 webhooks",
+    "CLI tools for runtime installation, readiness/license auditing (cleanplate-worker --doctor), cleanup, and model scouting (cleanplate-scout)"
+  ],
+  "softwareRequirements": [
+    "Python >= 3.11, < 3.13",
+    "uv package manager",
+    "ffmpeg and ffprobe in PATH",
+    "NVIDIA CUDA GPU (~16-24 GB+ VRAM) and ComfyUI v0.38.1 for real AI inpainting"
+  ],
+  "author": [
+    {
+      "@type": "Person",
+      "name": "qilaidev",
+      "url": "https://github.com/qilaidev",
+      "sameAs": [
+        "https://qilaidav.com",
+        "https://github.com/qilaidev"
+      ]
+    }
+  ],
+  "maintainer": [
+    {
+      "@type": "Person",
+      "name": "qilaidev",
+      "url": "https://github.com/qilaidev",
+      "sameAs": [
+        "https://qilaidav.com",
+        "https://github.com/qilaidev"
+      ]
+    }
+  ]
+}

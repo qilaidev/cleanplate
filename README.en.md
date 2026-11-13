@@ -1,14 +1,15 @@
+[中文文档 (README.md)](README.md) · **English (README.en.md)** · [llms.txt](llms.txt) · [codemeta.json](codemeta.json) · [API Contract](docs/api.md) · [Architecture](docs/architecture.md) · [Model Stack](docs/model-stack.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [License](LICENSE)
+
 # Cleanplate — Self-Hosted Async Video Watermark Detection, ROI Inpainting & QA Pipeline
 
+**`Cleanplate` (v0.3.0) is an open-source (MIT), self-hosted asynchronous video watermark removal node built on FastAPI, ComfyUI, and FFmpeg for automated media workflows. Without requiring manual bounding boxes, it automatically detects static or moving watermarks, plans multi-ROI crops and 81-frame chunks, executes a multi-model inpainting fallback chain, remuxes original audio, runs an automated QA gate, and delivers clean outputs plus a structured `report` via polling or HMAC-SHA256 webhooks.**
+
+[![CI](https://github.com/qilaidev/cleanplate/actions/workflows/ci.yml/badge.svg)](https://github.com/qilaidev/cleanplate/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB.svg)](pyproject.toml)
+[![Python 3.11 | 3.12](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB.svg)](pyproject.toml)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Async%20HTTP-009688.svg)](docs/api.md)
 [![ComfyUI](https://img.shields.io/badge/ComfyUI-v0.38.1-FF6F00.svg)](docs/model-stack.md)
 [![Architecture](https://img.shields.io/badge/Worker-Async%20Queue-6E44FF.svg)](docs/architecture.md)
-
-[中文文档 (README.md)](README.md) · **English (README.en.md)** · [llms.txt](llms.txt) · [API Contract](docs/api.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [License](LICENSE)
-
-**Cleanplate** is a self-hosted, asynchronous video watermark removal service built on **FastAPI**, **ComfyUI**, and **FFmpeg** for automated media pipelines. It automatically detects static or moving watermarks without manual masking, plans per-region ROI crops and 81-frame chunks, executes a multi-model inpainting fallback chain, stitches audio/video seamlessly, and returns a clean video alongside a structured QA report via polling or HMAC-signed webhooks.
 
 Named after the film post-production *clean plate* (a background frame with overlays removed). MIT-licensed service code, single-GPU ready, horizontally scalable across multiple workers.
 
@@ -16,14 +17,50 @@ Named after the film post-production *clean plate* (a background frame with over
 
 ---
 
-## Positioning
+## Entity Snapshot
 
-| What it is | What it is not |
+| Field | Verified Specification |
 | --- | --- |
-| An async processing node for automated workflows (HTTP submit -> webhook callback / polling) | A consumer-facing online watermark removal website |
-| Automatic detection + ROI inpainting + automated QA with a structured JSON `report` per job | A manual-masking video editing tool |
-| A swappable model stack with a standardized "scout -> license gate -> clean-plate eval -> swap" lifecycle | A single-model demo locked to one backend |
-| Single-host / single-GPU friendly, scaling horizontally by adding worker processes | A multi-tenant SaaS platform with billing or cluster scheduling |
+| **Entity Name** | `Cleanplate` (`qilaidev/cleanplate` · v0.3.0) |
+| **License Boundary** | Service code: **MIT License**; default weights carry non-commercial terms (`CC-BY-NC-4.0` / `S-Lab 1.0`) and are swappable |
+| **Core Stack** | Python `>=3.11,<3.13` · FastAPI · Uvicorn · SQLite (WAL) · OpenCV · FFmpeg/ffprobe · ComfyUI `v0.38.1` · `uv` |
+| **CLI Entrypoints** | `cleanplate-api` (HTTP API) · `cleanplate-worker` (async worker / installer / doctor / cleanup) · `cleanplate-scout` (model radar) |
+| **6-Stage Pipeline** | 1. Ingest Normalization -> 2. Single-Pass Detection (OpenCV + SAM 3.1) -> 3. Multi-ROI & 81-Frame Chunking -> 4. Fallback Chain -> 5. A/V Stitch -> 6. QA & HMAC Webhook |
+| **Quality & Safety Guards** | Checks `mask_mean_abs_diff` & `residual_overlap`; refuses blind inpaint (`DETECTOR_LOW_CONFIDENCE`); triggers fallback on `INPAINT_NO_EFFECT` |
+| **Hardware & Verification** | All 139 `pytest` tests and `local_fallback` smoke runs execute CPU-only with mocked ComfyUI; real AI inpainting targets CUDA GPUs (~16–24 GB+ VRAM) & ~18–20 GB `.runtime/` |
+| **Studio Ecosystem** | [qilai · qilaidav.com](https://qilaidav.com/en/) · [05 · Enterprise Requirement Ops & AI Foundation](https://qilaidav.com/en/workspace/) |
+
+---
+
+## Positioning: What It Is / What It Is Not
+
+| Dimension | What It Is | What It Is Not |
+| --- | --- | --- |
+| **Service Role** | An async processing node inside automated media workflows (HTTP submit -> webhook callback / polling) | **Not** a consumer-facing online watermark removal website or desktop GUI editor |
+| **Detection Model** | Automatic CPU static/edge corner detector + ComfyUI native `SAM 3.1` fallback running once per job | **Not** a manual-masking video tool (manual bbox/mask inputs are deliberately excluded from the API) |
+| **Inpainting & QA** | Per-watermark ROI crops + 81-frame (`4k+1`) chunks + fallback chain + automated post-inpaint QA `report` | **Not** a single-model demo script that silently returns unchanged watermarked frames on errors |
+| **Model Lifecycle** | A swappable model stack with standardized `cleanplate-scout` -> license gate -> clean-plate eval workflow | **Not** a pre-cleared commercial weight pack ready for unlicensed SaaS resale |
+| **Scaling Model** | Single-host / single-GPU friendly, scaling horizontally via multiple `cleanplate-worker` processes | **Not** a multi-tenant SaaS platform with cluster orchestration or billing |
+
+---
+
+## Use Cases & Alternatives Comparison
+
+### Primary Use Cases
+
+- **Automated media processing pipelines**: Run as an async queue node receiving jobs via `POST /v1/jobs` (with `Idempotency-Key` support) and emitting structured JSON `report` payloads and HMAC-SHA256 webhooks.
+- **Mixed static & moving watermark removal**: Avoid full-frame diffusion distortion and GPU overhead on clean corners by running fast CPU OpenCV detection first and escalating to `SAM 3.1` + multi-ROI chaining only when needed.
+- **Reproducible model evaluation & commercial swap workflows**: Use bundled `eval/` clean-plate fixtures, `cleanplate-scout`, and `--doctor` license checks to benchmark and swap in commercially permissive models (e.g., Apache-2.0 `Wan2.1 VACE` or `CLEAR`).
+
+### Architectural Comparison (Fact-Based, Zero Fabricated Benchmarks)
+
+| Dimension | `Cleanplate` | Consumer Watermark Web Tools | Manual Mask Editors (AE / PR) | Raw ComfyUI GUI Scripts | FFmpeg `delogo` Filter |
+|---|---|---|---|---|---|
+| **Automation & API** | Async FastAPI queue + idempotency + HMAC webhooks | Manual web uploads | Manual timeline masking & export | Manual node graph & manual chunking | Requires hardcoded static coordinates |
+| **Moving / Translucent Overlays** | CPU persistent-edge voting + `SAM 3.1` text-prompt tracking | Opaque vendor behavior | Manual keyframe rotoscoping | Requires custom graph wiring | Fixed static rectangle blur only |
+| **Multi-Watermark Isolation** | Multi-ROI independent crop chaining (`expand_roi_chain`) | Typically single box or full-frame | Manual multi-mask layers | Single bounding box degrades to full-frame | Multiple hardcoded filters |
+| **Silent-Failure Prevention** | Automated `quality_gate` (`INPAINT_NO_EFFECT` triggers fallback) | No structured QA report | Manual visual review | Nodes may silently pass input frames on OOM | No QA check |
+| **A/V Sync & Normalization** | CFR normalization (VFR/rotation/odd size) + lossless audio remux | Often re-encodes or drops audio | Manual export settings | Prone to VFR drift / freeze-frame padding | Pure filter pass |
 
 ---
 
@@ -44,7 +81,7 @@ POST /v1/jobs (multipart upload or path under DWM_STORAGE_ROOT)
                                 INPAINT_NO_EFFECT or flags needs_review; delivers HMAC webhook
 ```
 
-Every completed or failed job writes a structured `report` detailing input normalization, detection confidence/regions, chunk plan, per-provider attempts, and QA metrics so downstream systems can accept, review, or discard outputs deterministically. See [docs/api.md](docs/api.md).
+Every completed or failed job writes a structured `report` detailing input normalization, detection confidence/regions, chunk plan, per-provider attempts, and QA metrics so downstream systems can accept, review, or discard outputs deterministically. See [`docs/api.md`](docs/api.md).
 
 ---
 
@@ -55,8 +92,9 @@ Every completed or failed job writes a structured `report` detailing input norma
 Prerequisites: Python 3.11 or 3.12 (`>=3.11,<3.13`), [uv](https://docs.astral.sh/uv/), and `ffmpeg` / `ffprobe` in `PATH`.
 
 ```sh
-uv sync --extra dev
-uv run pytest                                   # 139 tests run under mock ComfyUI — no GPU required
+uv sync --extra dev --locked
+uv run ruff check src tests apps                # Lint & static checks
+uv run pytest -q                                # 139 tests run under mock ComfyUI — no GPU required
 
 uv run cleanplate-api --host 127.0.0.1 --port 8000
 uv run cleanplate-worker                        # in a second terminal (add --once for single-job debug)
@@ -80,13 +118,15 @@ uv run cleanplate-worker --start-comfyui              # Start ComfyUI and wait u
 uv run cleanplate-worker --doctor                     # Verify providers.runnable and commercial license status
 ```
 
-Once `GET /v1/providers` reports `minimax_remover.runnable=true`, submit jobs with `provider=auto`. Run `uv run cleanplate-worker --cleanup` (dry-run) and `--cleanup --execute-cleanup` periodically to prune expired job artifacts. See [docs/operations.md](docs/operations.md) for deployment, backups, and scaling.
+> **Proxy Note**: If `HTTP_PROXY` / `HTTPS_PROXY` is set in your shell, export `NO_PROXY=127.0.0.1,localhost` so `--doctor` and `--comfyui-health` do not receive misleading `502 Bad Gateway` responses when probing `127.0.0.1:8188` (documented in [`.env.example`](.env.example)).
+
+Once `GET /v1/providers` reports `minimax_remover.runnable=true`, submit jobs with `provider=auto`. Run `uv run cleanplate-worker --cleanup` (dry-run) and `--cleanup --execute-cleanup` periodically to prune expired job artifacts. See [`docs/operations.md`](docs/operations.md) for deployment, backups, and scaling.
 
 ---
 
 ## Configuration
 
-All settings are configured via environment variables (see [.env.example](.env.example)):
+All settings are configured via environment variables (see [`.env.example`](.env.example)):
 
 | Variable | Default | Description |
 | --- | --- | --- |
@@ -109,7 +149,7 @@ All settings are configured via environment variables (see [.env.example](.env.e
 | `DWM_FILE_RETENTION_DAYS` | `7` | Retention window for `--cleanup --execute-cleanup` |
 | `DWM_KEEP_WORK_FILES` | `false` | Preserves intermediate masks and chunks for debugging |
 
-Full configuration reference is in `src/wm_platform/config.py`.
+Full configuration reference is in [`src/wm_platform/config.py`](src/wm_platform/config.py).
 
 ---
 
@@ -122,29 +162,32 @@ Full configuration reference is in `src/wm_platform/config.py`.
 | Primary Inpainting | MiniMax-Remover 1.3B | **CC-BY-NC-4.0** | Non-commercial weights |
 | Secondary Inpainting | DiffuEraser + ProPainter | Apache-2.0 / **S-Lab 1.0 (NC)** | Requires manual placement of 5 ProPainter weights (~0.4 GB) |
 
-`--install-runtime --models` downloads ~14 GB of weights (~18–20 GB total `.runtime/` footprint). See [docs/model-stack.md](docs/model-stack.md) and [docs/model-scouting.md](docs/model-scouting.md) (`uv run cleanplate-scout --days 30`) for commercial alternatives and model evaluation.
+`--install-runtime --models` downloads ~14 GB of weights (~18–20 GB total `.runtime/` footprint). See [`docs/model-stack.md`](docs/model-stack.md) and [`docs/model-scouting.md`](docs/model-scouting.md) (`uv run cleanplate-scout --days 30`) for commercial alternatives and model evaluation.
 
 ---
 
-## FAQ
+## Frequently Asked Questions (FAQ)
 
 ### 1. What GPU and VRAM are required to run Cleanplate?
-Real AI inpainting requires an NVIDIA GPU running ComfyUI (typically 16 GB+ VRAM for 81-frame diffusion chunks with `MiniMax-Remover` 1.3B or `DiffuEraser`). When VRAM is tight, enable `DWM_MINIMAX_ROI_ENABLED=true` (default) to inpaint only watermark ROI crops rather than full frames, or reduce `DWM_CHUNK_FRAMES`.
+Real AI inpainting requires an NVIDIA CUDA GPU running ComfyUI (typically 16–24 GB+ VRAM for 81-frame diffusion chunks with `MiniMax-Remover` 1.3B or `DiffuEraser`). When VRAM is constrained, keep `DWM_MINIMAX_ROI_ENABLED=true` (default) to inpaint only ROI crops around watermarks or reduce `DWM_CHUNK_FRAMES` (Apple Silicon MPS is not a parity replacement for the CUDA baseline).
 
 ### 2. Can I run and test Cleanplate without a GPU or ComfyUI?
-Yes. All 139 tests in `uv run pytest` run against a mock ComfyUI backend with zero GPU required. You can also run `cleanplate-api` and `cleanplate-worker` locally and submit jobs with `provider=local_fallback` to validate HTTP submission, FFmpeg normalization, SQLite persistence, and callback delivery.
+Yes. All 139 tests in `uv run pytest -q` run against a mock ComfyUI backend and real FFmpeg with zero GPU required. You can also launch `cleanplate-api` and `cleanplate-worker` locally and submit jobs with `provider=local_fallback` to verify auth, normalization, SQLite persistence, and HMAC webhooks end-to-end.
 
 ### 3. Can I use Cleanplate in a commercial product?
-Cleanplate's **service code** is MIT licensed, so you can integrate, modify, and self-host it freely. However, the default **model weights** (`MiniMax-Remover` under CC-BY-NC-4.0 and `ProPainter` priors under S-Lab License 1.0) are **non-commercial**. For commercial workflows, either obtain commercial weight licenses or swap in commercially permissive models (such as Apache-2.0 `Wan2.1 VACE` or `CLEAR`, documented in [docs/model-stack.md](docs/model-stack.md)).
+Cleanplate's **service code** is MIT licensed, so you can integrate, modify, and self-host it freely; however, the default **model weights** (`MiniMax-Remover` under CC-BY-NC-4.0 and `ProPainter` priors under S-Lab License 1.0) are **non-commercial**. For commercial deployments, obtain commercial weight licenses or swap in permissive models (such as Apache-2.0 `Wan2.1 VACE` or `CLEAR`, documented in [`docs/model-stack.md`](docs/model-stack.md)).
 
 ### 4. How does Cleanplate handle moving watermarks vs. static corner logos?
-In `DWM_DETECTOR_MODE=auto` (default), Cleanplate first runs a fast CPU OpenCV detector (`static_overlay`) optimized for static corner badges and semi-transparent persistent edges. If confidence is uncertain or no static overlay is found, it escalates once to ComfyUI native `SAM 3.1` (`sam3_text`) to generate per-frame masks for moving watermarks.
+In `DWM_DETECTOR_MODE=auto` (default), Cleanplate first runs a fast CPU OpenCV detector (`static_overlay`) optimized for static corner badges and semi-transparent persistent edges along the outer 22% borders. If confidence is uncertain or no static overlay is found, it escalates once to ComfyUI native `SAM 3.1` (`sam3_text`) to generate per-frame masks for moving or central watermarks.
 
-### 5. Why does Cleanplate sometimes refuse to process a video (`DETECTOR_LOW_CONFIDENCE`)?
-By design, Cleanplate avoids blind inpainting that would blur or corrupt clean footage. If the detected mask is overly fragmented, covers too much of the frame (`complex`), or `SAM 3.1` is unavailable when static detection is uncertain, the job fails cleanly with `DETECTOR_LOW_CONFIDENCE` so downstream pipelines can route it to human review or keep the original.
+### 5. Why do jobs fail with `DETECTOR_LOW_CONFIDENCE` or trigger `INPAINT_NO_EFFECT`?
+Both codes act as safety gates against silent video corruption. `DETECTOR_LOW_CONFIDENCE` prevents blind inpainting when a mask is too fragmented/large (`complex`) or when `SAM 3.1` is unavailable for uncertain scenes; `INPAINT_NO_EFFECT` catches cases where an inpainting node returns unchanged input frames (`mask_mean_abs_diff < 1.5`) and automatically triggers the fallback provider.
 
-### 6. How do I scale Cleanplate horizontally across multiple GPUs?
-Run one shared `cleanplate-api` instance (or shared storage/DB) and launch multiple `cleanplate-worker` processes, each configured with its own `DWM_COMFYUI_API_URL` pointing to a dedicated GPU ComfyUI instance (e.g., `http://127.0.0.1:8188`, `http://127.0.0.1:8189`). Workers coordinate job claims safely via file locks and database transactions.
+### 6. What security hardening applies to API keys, file paths, and webhooks?
+Setting `DWM_ENV=production` forbids the default `dev-secret-key`, stores API keys as SHA-256 hashes, and enforces per-tenant submit rate limits (default 60/min). `input_path` submissions are confined to `DWM_STORAGE_ROOT`, `callback_url` rejects `localhost` and private IP ranges by default, and callbacks are signed with HMAC-SHA256.
+
+### 7. How do I scale across multiple GPUs and clean up old job files?
+Run one shared `cleanplate-api` instance and launch multiple `cleanplate-worker` processes, each configured with a distinct `DWM_COMFYUI_API_URL` (`http://127.0.0.1:8188`, `http://127.0.0.1:8189`, etc.) pointing to its own GPU ComfyUI process. Prune expired job files with `uv run cleanplate-worker --cleanup --execute-cleanup` (note that `.runtime/` itself occupies ~18–20 GB and is never removed by `--cleanup`).
 
 ---
 
@@ -157,22 +200,52 @@ cleanplate/
 ├── workflows/         # ComfyUI API-format workflow JSON templates
 ├── .runtime/          # Pinned ComfyUI runtime lock.yaml and model manifest.yaml
 ├── eval/              # Clean-plate evaluation fixtures and model scouting snapshots
-├── tests/             # pytest suite (mock ComfyUI, zero GPU required)
+├── tests/             # pytest suite (139 tests, mock ComfyUI, zero GPU required)
 ├── docs/              # Architecture, API, operations, model stack, scouting, roadmap
 ├── llms.txt           # Machine-readable project & API summary (llmstxt.org)
+├── codemeta.json      # CodeMeta 2.0 structured software metadata
 ├── SECURITY.md        # Vulnerability reporting & security hardening notes
 ├── CONTRIBUTING.md    # Development workflow & PR guidelines
+├── .env.example       # Environment configuration template
 └── pyproject.toml     # Dependencies & CLI entrypoints (cleanplate-api / cleanplate-worker / cleanplate-scout)
 ```
 
 ---
 
+<details>
+<summary><strong>Search Intent & Query Mapping</strong></summary>
+
+| User Search Intent | Typical Queries (EN / ZH) | Verified Implementation Surface |
+| --- | --- | --- |
+| Self-hosted open-source video watermark removal API | self-hosted video watermark removal API · FastAPI async video inpainting · 开源视频去水印 API | [`src/wm_platform/api_app.py`](src/wm_platform/api_app.py) · [`docs/api.md`](docs/api.md) |
+| ComfyUI headless video inpainting worker queue | ComfyUI MiniMax-Remover DiffuEraser pipeline · 81 frame chunk video inpainting · ComfyUI 去水印队列 | [`src/wm_platform/provider_runtime.py`](src/wm_platform/provider_runtime.py) · [`workflows/`](workflows/) |
+| Automatic watermark detection & QA verification | automatic watermark mask detection SAM3 OpenCV · INPAINT_NO_EFFECT quality gate · 水印检测质检 | [`src/wm_platform/watermark_detect.py`](src/wm_platform/watermark_detect.py) · [`src/wm_platform/quality_gate.py`](src/wm_platform/quality_gate.py) |
+| Licensing & swappable video inpainting model evaluation | MiniMax-Remover CC-BY-NC commercial alternative · cleanplate-scout · 模型商用许可评估 | [`docs/model-stack.md`](docs/model-stack.md) · [`src/wm_platform/model_scout.py`](src/wm_platform/model_scout.py) |
+
+</details>
+
+<sub>**Keywords**: self-hosted video watermark removal · FastAPI async video pipeline · ComfyUI video inpainting · MiniMax-Remover · DiffuEraser · SAM 3.1 watermark detection · multi-ROI chunked inpainting · automated video QA gate · FFmpeg audio remux · 开源视频去水印 · 自托管去水印 API</sub>
+
+---
+
 ## Documentation
 
-- [docs/architecture.md](docs/architecture.md): Pipeline stages, modules, database schema, and extension points
-- [docs/api.md](docs/api.md): HTTP endpoints, `report` schema, error codes, and HMAC webhooks
-- [docs/operations.md](docs/operations.md): Deployment, first GPU run, health checks, scaling, backup, and rollback
-- [docs/model-stack.md](docs/model-stack.md): Current models, licenses, candidates, and trade-offs
-- [docs/model-scouting.md](docs/model-scouting.md): Model scouting workflow and evaluation gates
-- [docs/roadmap.md](docs/roadmap.md): Completed milestones and upcoming work
-- [CHANGELOG.md](CHANGELOG.md): Release history
+- [`docs/architecture.md`](docs/architecture.md): Pipeline stages, modules, database schema, and extension points
+- [`docs/api.md`](docs/api.md): HTTP endpoints, `report` schema, error codes, and HMAC webhooks
+- [`docs/operations.md`](docs/operations.md): Deployment, first GPU run, health checks, scaling, backup, and rollback
+- [`docs/model-stack.md`](docs/model-stack.md): Current models, licenses, candidates, and trade-offs
+- [`docs/model-scouting.md`](docs/model-scouting.md): Model scouting workflow and evaluation gates
+- [`docs/roadmap.md`](docs/roadmap.md): Completed milestones and upcoming work
+- [`CHANGELOG.md`](CHANGELOG.md): Release history
+
+---
+
+## Architecture & Ecosystem · qilai (`qilaidav.com`)
+
+This open-source project is engineered and maintained by **[qilai · qilaidav](https://qilaidav.com/en/)** — an independent systems engineering studio focused on **Deterministic Systems Engineering & High-Signal Technical Diagnostics**.
+
+- **Pillar Alignment**: [05 · Enterprise Requirement Ops & AI Foundation (Workspace)](https://qilaidav.com/en/workspace/) · [中文专栏](https://qilaidav.com/workspace/)
+- **Studio Website**: [https://qilaidav.com/en/](https://qilaidav.com/en/) · [中文主站](https://qilaidav.com/)
+- **Technical Notes & Field Reports**: [https://qilaidav.com/notes/](https://qilaidav.com/notes/)
+- **GitHub Open-Source Matrix**: [https://github.com/qilaidev](https://github.com/qilaidev)
+- **Direct Engineering Contact**: [Telegram @BD8888](https://t.me/BD8888) · [Public Channel @AIKB8](https://t.me/AIKB8) · `hello@qilaidav.com`
