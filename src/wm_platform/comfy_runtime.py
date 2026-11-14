@@ -30,7 +30,7 @@ def build_comfyui_command(settings: Settings) -> list[str]:
         "--port",
         str(_port_from_api_url(settings.comfyui_api_url)),
         "--output-directory",
-        str(settings.outbox_dir),
+        str(settings.comfyui_output_dir),
         "--disable-auto-launch",
     ]
 
@@ -98,6 +98,7 @@ def start_comfyui(settings: Settings) -> subprocess.Popen[str]:
                 logger.info("ComfyUI already running")
                 return subprocess.Popen(["sleep", "0"], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
+            settings.comfyui_output_dir.mkdir(parents=True, exist_ok=True)
             command = build_comfyui_command(settings)
             logger.info("Starting ComfyUI: %s", " ".join(command))
             process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, text=True)

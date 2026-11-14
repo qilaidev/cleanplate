@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import time
 from pathlib import Path
 from urllib.parse import urljoin
@@ -60,6 +61,20 @@ class ComfyJobClient:
             raise AppError("PROVIDER_RUN_FAILED", "ComfyUI prompt response missing prompt_id", 500)
         return queued_prompt_id
 
+    def cancel_prompt(self, client: httpx.Client, prompt_id: str) -> None:
+        """Best-effort queue deletion + active execution interrupt for orphaned/timed-out prompts."""
+        post = getattr(client, "post", None)
+        if not callable(post) or not prompt_id:
+            return
+        for endpoint, body in (
+            ("/queue", {"delete": [prompt_id]}),
+            ("/interrupt", {"prompt_id": prompt_id}),
+        ):
+            try:
+                post(urljoin(self.settings.comfyui_api_url, endpoint), json=body)
+            except Exception:
+                continue
+
     def wait_for_artifact(
         self,
         client: httpx.Client,
@@ -75,32 +90,81 @@ class ComfyJobClient:
             if allow_images
             else "ComfyUI execution completed without video output"
         )
-        while time.monotonic() < deadline:
-            response = client.get(urljoin(self.settings.comfyui_api_url, f"/history/{prompt_id}"))
-            if response.status_code == 200:
-                payload = response.json()
-                if isinstance(payload, dict) and prompt_id in payload:
-                    history_item = payload[prompt_id]
-                    artifact = extractor(history_item)
-                    status = history_item.get("status", {})
-                    completed = isinstance(status, dict) and bool(status.get("completed"))
-                    if allow_images and completed and isinstance(status, dict) and status.get("status_str") == "error":
-                        messages = status.get("messages") or []
-                        detail = "; ".join(str(item) for item in messages) or empty_detail
-                        raise AppError("PROVIDER_RUN_FAILED", f"ComfyUI execution failed: {detail}", 500)
-                    if artifact is not None and (completed or not allow_images):
-                        return artifact
-                    if completed:
-                        messages = status.get("messages") or []
-                        detail = "; ".join(str(item) for item in messages) or empty_detail
-                        if status.get("status_str") == "error":
+        completed_seen = False
+        try:
+            while time.monotonic() < deadline:
+                response = client.get(urljoin(self.settings.comfyui_api_url, f"/history/{prompt_id}"))
+                if response.status_code == 200:
+                    payload = response.json()
+                    if isinstance(payload, dict) and prompt_id in payload:
+                        history_item = payload[prompt_id]
+                        artifact = extractor(history_item)
+                        status = history_item.get("status", {})
+                        completed = isinstance(status, dict) and bool(status.get("completed"))
+                        if completed:
+                            completed_seen = True
+                        if allow_images and completed and isinstance(status, dict) and status.get("status_str") == "error":
+                            messages = status.get("messages") or []
+                            detail = "; ".join(str(item) for item in messages) or empty_detail
                             raise AppError("PROVIDER_RUN_FAILED", f"ComfyUI execution failed: {detail}", 500)
-                        raise AppError("PROVIDER_RUN_FAILED", detail, 500)
-            time.sleep(1.0)
-        raise AppError("PROVIDER_RUN_FAILED", "ComfyUI execution timed out", 500)
+                        if artifact is not None and (completed or not allow_images):
+                            completed_seen = True
+                            return artifact
+                        if completed:
+                            messages = status.get("messages") or []
+                            detail = "; ".join(str(item) for item in messages) or empty_detail
+                            if status.get("status_str") == "error":
+                                raise AppError("PROVIDER_RUN_FAILED", f"ComfyUI execution failed: {detail}", 500)
+                            raise AppError("PROVIDER_RUN_FAILED", detail, 500)
+                time.sleep(1.0)
+            raise AppError("PROVIDER_RUN_FAILED", "ComfyUI execution timed out", 500)
+        except BaseException:
+            if not completed_seen:
+                self.cancel_prompt(client, prompt_id)
+            raise
+
+    def _resolve_spool_candidate(self, root: Path, artifact: dict[str, str]) -> Path | None:
+        if artifact.get("type", "output") != "output":
+            return None
+        filename = artifact.get("filename", "")
+        if not filename:
+            return None
+        subfolder = artifact.get("subfolder", "").strip("/")
+        root_resolved = root.resolve()
+        candidate = (root / subfolder / filename).resolve() if subfolder else (root / filename).resolve()
+        if not candidate.is_relative_to(root_resolved):
+            return None
+        return candidate
+
+    def _cleanup_local_spool_artifact(self, artifact: dict[str, str], destination: Path) -> None:
+        dest_resolved = destination.resolve()
+        spool_candidate = self._resolve_spool_candidate(self.settings.comfyui_output_dir, artifact)
+        if spool_candidate is not None and spool_candidate != dest_resolved and spool_candidate.is_file():
+            try:
+                spool_candidate.unlink()
+            except OSError:
+                pass
+        # Also clean subfolder intermediates if an external ComfyUI was started against outbox_dir.
+        if artifact.get("subfolder", "").strip("/"):
+            legacy = self._resolve_spool_candidate(self.settings.outbox_dir, artifact)
+            if legacy is not None and legacy != dest_resolved and legacy.is_file():
+                try:
+                    legacy.unlink()
+                except OSError:
+                    pass
 
     def download_to(self, client: httpx.Client, artifact: dict[str, str], destination: Path) -> Path:
         destination.parent.mkdir(parents=True, exist_ok=True)
+        spool_file = self._resolve_spool_candidate(self.settings.comfyui_output_dir, artifact)
+        if spool_file is not None and spool_file.is_file() and not hasattr(client, "_force_http_view"):
+            # When ComfyUI shares local storage with the worker, move the spool file directly
+            # unless the client is a test mock without real spool output.
+            stream_attr = getattr(client, "stream", None)
+            if isinstance(client, httpx.Client) or not callable(stream_attr):
+                shutil.move(str(spool_file), destination)
+                self._cleanup_local_spool_artifact(artifact, destination)
+                return destination
+
         temp_path = destination.with_name(f"{destination.name}.tmp")
         try:
             with client.stream("GET", urljoin(self.settings.comfyui_api_url, "/view"), params=artifact) as response:
@@ -112,6 +176,7 @@ class ComfyJobClient:
                         if chunk:
                             output.write(chunk)
             temp_path.replace(destination)
+            self._cleanup_local_spool_artifact(artifact, destination)
         except Exception:
             if temp_path.exists():
                 temp_path.unlink()

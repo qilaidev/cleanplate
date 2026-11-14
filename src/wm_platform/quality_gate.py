@@ -13,6 +13,7 @@ checks are cheap and do not need a clean reference.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -47,7 +48,8 @@ def check_output(input_path: Path, output_path: Path, detection: DetectionResult
     mask = detection.union_mask
     if mask is None or not mask.any():
         return QualityVerdict("skipped", {"reason": "no detection mask"})
-    diff = masked_difference(input_path, output_path, mask)
+    active_frames = detection.active_frames if detection.temporal else None
+    diff = masked_difference(input_path, output_path, mask, active_frames=active_frames)
     if diff is None:
         return QualityVerdict("skipped", {"reason": "could not read frames"})
     details: dict[str, object] = {"mask_mean_abs_diff": round(diff, 3)}
@@ -71,9 +73,22 @@ def check_output(input_path: Path, output_path: Path, detection: DetectionResult
     return QualityVerdict("pass", details)
 
 
-def masked_difference(input_path: Path, output_path: Path, mask: np.ndarray) -> float | None:
-    a = _sample(input_path)
-    b = _sample(output_path)
+def masked_difference(
+    input_path: Path,
+    output_path: Path,
+    mask: np.ndarray,
+    *,
+    active_frames: Sequence[bool] | None = None,
+) -> float | None:
+    target_indices: list[int] | None = None
+    if active_frames is not None:
+        active_idx = [idx for idx, flag in enumerate(active_frames) if flag]
+        if active_idx:
+            picks = np.linspace(0, len(active_idx) - 1, num=min(SAMPLE_FRAMES, len(active_idx)), dtype=int)
+            target_indices = [active_idx[int(p)] for p in picks]
+
+    a = _sample(input_path, explicit_indices=target_indices)
+    b = _sample(output_path, explicit_indices=target_indices)
     count = min(len(a), len(b))
     if count == 0:
         return None
@@ -90,14 +105,26 @@ def masked_difference(input_path: Path, output_path: Path, mask: np.ndarray) -> 
     return float(np.mean(values))
 
 
-def _sample(path: Path, count: int = SAMPLE_FRAMES) -> list[np.ndarray]:
+def _sample(
+    path: Path,
+    count: int = SAMPLE_FRAMES,
+    *,
+    explicit_indices: Sequence[int] | None = None,
+) -> list[np.ndarray]:
     capture = cv2.VideoCapture(str(path))
     if not capture.isOpened():
         return []
     try:
         total = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         frames: list[np.ndarray] = []
-        indexes = np.linspace(0, max(total - 1, 0), num=min(count, total), dtype=int) if total > 0 else []
+        if explicit_indices is not None:
+            indexes = [idx for idx in explicit_indices if total <= 0 or 0 <= idx < total]
+        else:
+            indexes = (
+                list(np.linspace(0, max(total - 1, 0), num=min(count, total), dtype=int))
+                if total > 0
+                else []
+            )
         for index in indexes:
             capture.set(cv2.CAP_PROP_POS_FRAMES, int(index))
             ok, frame = capture.read()

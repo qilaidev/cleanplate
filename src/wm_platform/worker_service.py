@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import inspect
 import logging
 import socket
 import threading
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -80,10 +82,18 @@ class WorkerService:
 
         started_at = time.monotonic()
         logger.info("processing job=%s provider_requested=%s", job.job_id, job.provider_requested)
+        progress_lock = threading.Lock()
+        progress_state: dict[str, float | str] = {"last_progress": started_at, "stage": "claimed"}
+
+        def _touch_progress(stage: str) -> None:
+            with progress_lock:
+                progress_state["last_progress"] = time.monotonic()
+                progress_state["stage"] = stage
+
         heartbeat_stop = threading.Event()
         heartbeat_thread = threading.Thread(
             target=self._heartbeat_job_claim,
-            args=(job.job_id, heartbeat_stop),
+            args=(job.job_id, heartbeat_stop, progress_lock, progress_state, job_lock),
             name=f"job-heartbeat-{job.job_id}",
             daemon=True,
         )
@@ -91,7 +101,7 @@ class WorkerService:
 
         updated: JobRecord | None = None
         try:
-            provider_name, output_path, *rest = self.providers.run_with_fallback(job)
+            provider_name, output_path, *rest = self._invoke_run_with_fallback(job, _touch_progress)
             report = rest[0] if rest else None
             duration_ms = self._duration_ms(started_at)
             updated = self.repository.mark_job_succeeded(
@@ -157,7 +167,30 @@ class WorkerService:
         if updated is not None:
             self.repository.enqueue_callback(updated)
 
-    def _heartbeat_job_claim(self, job_id: str, stop_event: threading.Event) -> None:
+    def _invoke_run_with_fallback(
+        self,
+        job: JobRecord,
+        progress_callback: Callable[[str], None],
+    ):
+        runner = self.providers.run_with_fallback
+        try:
+            params = inspect.signature(runner).parameters
+        except (TypeError, ValueError):
+            params = {}
+        if "progress_callback" in params or any(
+            param.kind == inspect.Parameter.VAR_KEYWORD for param in params.values()
+        ):
+            return runner(job, progress_callback=progress_callback)
+        return runner(job)
+
+    def _heartbeat_job_claim(
+        self,
+        job_id: str,
+        stop_event: threading.Event,
+        progress_lock: threading.Lock | None = None,
+        progress_state: dict[str, float | str] | None = None,
+        job_lock: JobFileLock | None = None,
+    ) -> None:
         interval = max(
             0.01,
             min(
@@ -165,7 +198,24 @@ class WorkerService:
                 max(0.01, self.settings.job_claim_timeout_seconds / 3),
             ),
         )
+        watchdog_limit = float(getattr(self.settings, "job_watchdog_timeout_seconds", 0.0) or 0.0)
         while not stop_event.wait(interval):
+            if watchdog_limit > 0 and progress_lock is not None and progress_state is not None:
+                with progress_lock:
+                    last_progress = float(progress_state.get("last_progress", 0.0))
+                    stage = str(progress_state.get("stage", "unknown"))
+                stalled_seconds = time.monotonic() - last_progress
+                if stalled_seconds > watchdog_limit:
+                    logger.error(
+                        "job watchdog expired after %.1fs without stage progress job_id=%s stage=%s; "
+                        "stopping heartbeat and releasing file lock so stale claim recovery can proceed",
+                        stalled_seconds,
+                        job_id,
+                        stage,
+                    )
+                    if job_lock is not None:
+                        job_lock.release()
+                    return
             renewed = self.repository.renew_job_claim(job_id=job_id, lock_owner=self.lock_owner)
             if not renewed:
                 logger.warning("lost job claim during heartbeat job_id=%s lock_owner=%s", job_id, self.lock_owner)

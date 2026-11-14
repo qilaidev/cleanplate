@@ -16,6 +16,7 @@ def ensure_storage_dirs(settings: Settings) -> None:
     settings.inbox_dir.mkdir(parents=True, exist_ok=True)
     settings.outbox_dir.mkdir(parents=True, exist_ok=True)
     settings.work_dir.mkdir(parents=True, exist_ok=True)
+    settings.comfyui_output_dir.mkdir(parents=True, exist_ok=True)
 
 
 def _validate_extension(path: Path) -> None:

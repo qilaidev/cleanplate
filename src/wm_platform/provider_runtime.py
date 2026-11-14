@@ -22,7 +22,14 @@ from wm_platform.comfy_graph import expand_roi_chain, set_frame_window
 from wm_platform.comfy_jobs import ComfyJobClient
 from wm_platform.config import QUALITY_MODE_VALUES, Settings
 from wm_platform.errors import AppError
-from wm_platform.media import Chunk, NormalizedInput, assemble_output, normalize_input, plan_chunks
+from wm_platform.media import (
+    Chunk,
+    NormalizedInput,
+    assemble_output,
+    extract_frame_window,
+    normalize_input,
+    plan_chunks,
+)
 from wm_platform.models import JobRecord, ProviderProbeResult, RunMetadataRecord
 from wm_platform.pipeline import AI_INPAINT_PROVIDERS, PROBE_ORDER, auto_inpaint_chain
 from wm_platform.quality_gate import check_output
@@ -138,15 +145,46 @@ class PipelineContext:
         return self.source.path
 
 
-def build_pipeline_context(settings: Settings, job: JobRecord) -> PipelineContext:
+def _cleanup_job_spool_files(settings: Settings, job_id: str) -> None:
+    if not job_id:
+        return
+    for root in (settings.comfyui_output_dir, settings.outbox_dir):
+        for sub in ("video", "mask"):
+            subdir = root / sub
+            if not subdir.is_dir():
+                continue
+            for leftover in subdir.glob(f"{job_id}-*"):
+                if leftover.is_file():
+                    try:
+                        leftover.unlink()
+                    except OSError:
+                        pass
+
+
+def build_pipeline_context(
+    settings: Settings,
+    job: JobRecord,
+    *,
+    progress_callback: Callable[[str], None] | None = None,
+) -> PipelineContext:
     """Normalize the input and run detection once. Raises AppError when there is nothing to inpaint."""
     work_dir = settings.work_dir / job.job_id
     work_dir.mkdir(parents=True, exist_ok=True)
-    source = normalize_input(Path(job.input_path), work_dir)
+    if progress_callback is not None:
+        progress_callback("normalize_input")
+    source = normalize_input(Path(job.input_path), work_dir, timeout=settings.media_timeout_seconds)
     report: dict[str, object] = {
         "input": {**source.source_info.as_report(), "normalized": source.normalized, "normalize_reasons": source.reasons},
     }
-    detection = detect_watermark(source.path, work_dir / "mask.mkv", settings)
+    if progress_callback is not None:
+        progress_callback("detect_watermark")
+    max_static_frames = settings.chunk_frames if settings.chunk_frames > 0 else None
+    detection = detect_watermark(
+        source.path,
+        work_dir / "mask.mkv",
+        settings,
+        max_static_frames=max_static_frames,
+    )
     report["detection"] = detection.as_report()
     chunks = plan_chunks(source.info.frame_count, settings.chunk_frames)
     context = PipelineContext(
@@ -176,38 +214,99 @@ def run_comfy_chunks(
     context: PipelineContext,
     label: str,
     build_prompt: Callable[[str], dict[str, dict[str, object]]],
+    *,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> tuple[Path, str]:
     """Queue one prompt per frame window, then stitch the windows and mux the source audio.
 
     `build_prompt(device)` returns a fresh prompt; the window and a unique output prefix
-    are injected here. Returns (assembled video, device).
+    are injected here. Windows whose temporal mask is completely empty bypass ComfyUI and
+    are sliced losslessly from the normalized input. Returns (assembled video, device).
     """
     backend = ComfyJobClient(settings)
     segments: list[tuple[Path, Chunk]] = []
     segment_dir = context.work_dir / f"segments-{label}"
     chunks = context.chunks or [Chunk(start=0, count=0)]
-    with httpx.Client(timeout=None) as client:
-        device = backend.ensure_ready(client)
-        for index, chunk in enumerate(chunks):
-            prompt = build_prompt(device)
-            if chunk.count > 0:
-                set_frame_window(prompt, chunk.start, chunk.count)
-            prefix = f"video/{context.job.job_id}-{label}-{index:04d}"
-            for node in prompt.values():
-                inputs = node.get("inputs") if isinstance(node, dict) else None
-                if isinstance(inputs, dict) and "filename_prefix" in inputs:
-                    inputs["filename_prefix"] = prefix
-            prompt_id = f"{context.job.job_id}-{label}-{index:04d}-{uuid.uuid4().hex[:6]}"
-            queued = backend.queue_prompt(client, prompt, prompt_id)
-            artifact = backend.wait_for_artifact(client, queued)
-            suffix = Path(artifact.get("filename", "")).suffix or ".mp4"
-            segment = backend.download_to(client, artifact, segment_dir / f"{index:04d}{suffix}")
-            segments.append((segment, chunk))
+    static_mask_video = (
+        str(context.detection.mask_video_path)
+        if (context.detection.mask_video_path is not None and not context.detection.temporal)
+        else None
+    )
+    device: str | None = None
+    bypassed_chunks = 0
+    inpainted_chunks = 0
+    try:
+        with httpx.Client(timeout=None) as client:
+            for index, chunk in enumerate(chunks):
+                if progress_callback is not None:
+                    progress_callback(f"{label}:chunk:{index}/{len(chunks)}")
+                if (
+                    chunk.count > 0
+                    and context.detection.temporal
+                    and not context.detection.has_active_window(chunk.start, chunk.count)
+                ):
+                    segment = extract_frame_window(
+                        context.source.path,
+                        segment_dir / f"{index:04d}.mp4",
+                        start=chunk.start,
+                        count=chunk.count,
+                        fps=context.source.info.fps,
+                        color_info=context.source.source_info,
+                        timeout=settings.media_timeout_seconds,
+                    )
+                    segments.append((segment, chunk))
+                    bypassed_chunks += 1
+                    continue
+
+                if device is None:
+                    device = backend.ensure_ready(client)
+                prompt = build_prompt(device)
+                if chunk.count > 0:
+                    set_frame_window(
+                        prompt,
+                        chunk.start,
+                        chunk.count,
+                        static_mask_video=static_mask_video,
+                    )
+                prefix = f"video/{context.job.job_id}-{label}-{index:04d}"
+                for node in prompt.values():
+                    inputs = node.get("inputs") if isinstance(node, dict) else None
+                    if isinstance(inputs, dict) and "filename_prefix" in inputs:
+                        inputs["filename_prefix"] = prefix
+                prompt_id = f"{context.job.job_id}-{label}-{index:04d}-{uuid.uuid4().hex[:6]}"
+                queued = backend.queue_prompt(client, prompt, prompt_id)
+                artifact = backend.wait_for_artifact(client, queued)
+                suffix = Path(artifact.get("filename", "")).suffix or ".mp4"
+                segment = backend.download_to(client, artifact, segment_dir / f"{index:04d}{suffix}")
+                segments.append((segment, chunk))
+                inpainted_chunks += 1
+    finally:
+        _cleanup_job_spool_files(settings, context.job.job_id)
+
+    plan_meta = context.report.get("plan")
+    if isinstance(plan_meta, dict):
+        plan_meta["inpainted_chunks"] = inpainted_chunks
+        plan_meta["bypassed_chunks"] = bypassed_chunks
+    else:
+        context.report["plan"] = {
+            "chunks": len(chunks),
+            "chunk_frames": settings.chunk_frames,
+            "inpainted_chunks": inpainted_chunks,
+            "bypassed_chunks": bypassed_chunks,
+        }
+
+    if progress_callback is not None:
+        progress_callback(f"{label}:assemble_output")
     audio = context.source.path if context.source.info.has_audio else None
     output = assemble_output(
-        segments, audio, context.work_dir / f"{label}.mp4", fps=context.source.info.fps
+        segments,
+        audio,
+        context.work_dir / f"{label}.mp4",
+        fps=context.source.info.fps,
+        color_info=context.source.source_info,
+        timeout=settings.media_timeout_seconds,
     )
-    return output, device
+    return output, device or "cpu"
 
 
 @dataclass
@@ -272,7 +371,13 @@ class _ComfyDiffuEraserProvider(_BaseProvider):
             details=details,
         )
 
-    def run(self, job: JobRecord, context: PipelineContext | None = None) -> dict[str, str]:
+    def run(
+        self,
+        job: JobRecord,
+        context: PipelineContext | None = None,
+        *,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> dict[str, str]:
         if context is None:
             context = _context_or_raise(self.settings, job, self._record_detection_failure)
         detection = context.detection
@@ -285,7 +390,13 @@ class _ComfyDiffuEraserProvider(_BaseProvider):
                 copy.deepcopy(base_prompt), job, device, mask_video_path=mask_video_path, input_path=context.input_path
             )
 
-        output_path, device = run_comfy_chunks(self.settings, context, self.name, _prompt)
+        output_path, device = run_comfy_chunks(
+            self.settings,
+            context,
+            self.name,
+            _prompt,
+            progress_callback=progress_callback,
+        )
         self._record_run_metadata(
             job,
             device,
@@ -600,7 +711,13 @@ class _MiniMaxRemoverProvider(_BaseProvider):
             details=details,
         )
 
-    def run(self, job: JobRecord, context: PipelineContext | None = None) -> dict[str, str]:
+    def run(
+        self,
+        job: JobRecord,
+        context: PipelineContext | None = None,
+        *,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> dict[str, str]:
         if context is None:
             context = _context_or_raise(self.settings, job, self._record_detection_failure)
         detection = context.detection
@@ -610,7 +727,11 @@ class _MiniMaxRemoverProvider(_BaseProvider):
             job, detection.mask_video_path, rois=rois, input_path=context.input_path
         )
         output_path, device = run_comfy_chunks(
-            self.settings, context, self.name, lambda _device: copy.deepcopy(prompt)
+            self.settings,
+            context,
+            self.name,
+            lambda _device: copy.deepcopy(prompt),
+            progress_callback=progress_callback,
         )
         self._record_run_metadata(
             job,
@@ -1042,7 +1163,21 @@ class _LocalFallbackProvider(_BaseProvider):
             return {"output_path": str(output_path)}
 
         command = self._build_ffmpeg_command(Path(source_path), output_path)
-        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        timeout = self.settings.media_timeout_seconds if self.settings.media_timeout_seconds > 0 else None
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AppError(
+                "PROVIDER_RUN_FAILED",
+                f"local_fallback ffmpeg timed out after {timeout:.1f}s",
+                504,
+            ) from exc
         if completed.returncode != 0:
             stderr = (completed.stderr or "").strip()
             detail = stderr.splitlines()[-1] if stderr else "ffmpeg failed"
@@ -1165,7 +1300,12 @@ class ProviderRuntime:
         _PROBE_CACHE[cache_key] = (now, probes)
         return probes
 
-    def run_with_fallback(self, job: JobRecord) -> RunOutcome:
+    def run_with_fallback(
+        self,
+        job: JobRecord,
+        *,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> RunOutcome:
         """Probe -> normalize + detect once -> inpaint -> quality gate, per provider in the chain.
 
         A provider whose output fails the gate (unchanged frames, overlay still visible)
@@ -1203,19 +1343,34 @@ class ProviderRuntime:
         context: PipelineContext | None = None
         try:
             if any(name in AI_INPAINT_PROVIDERS for name in runnable):
-                context, early = self._prepare_context(job, runnable[0], report)
+                context, early = self._prepare_context(
+                    job, runnable[0], report, progress_callback=progress_callback
+                )
                 if early is not None:
                     return early
-            return self._run_providers(job, runnable, context, report, failed_messages)
+            return self._run_providers(
+                job,
+                runnable,
+                context,
+                report,
+                failed_messages,
+                progress_callback=progress_callback,
+            )
         finally:
+            _cleanup_job_spool_files(self.settings, job.job_id)
             if not self.settings.keep_work_files:
                 shutil.rmtree(self.settings.work_dir / job.job_id, ignore_errors=True)
 
     def _prepare_context(
-        self, job: JobRecord, first_provider: str, report: dict[str, object]
+        self,
+        job: JobRecord,
+        first_provider: str,
+        report: dict[str, object],
+        *,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> tuple[PipelineContext | None, RunOutcome | None]:
         try:
-            context = build_pipeline_context(self.settings, job)
+            context = build_pipeline_context(self.settings, job, progress_callback=progress_callback)
         except _DetectionOutcome as exc:
             report.update(exc.context.report)
             provider = self.registry.get(first_provider)
@@ -1243,6 +1398,7 @@ class ProviderRuntime:
             ) from exc
         report.update(context.report)
         report["plan"] = {"chunks": len(context.chunks), "chunk_frames": self.settings.chunk_frames}
+        context.report["plan"] = report["plan"]
         return context, None
 
     def _run_providers(
@@ -1252,6 +1408,8 @@ class ProviderRuntime:
         context: PipelineContext | None,
         report: dict[str, object],
         failed_messages: list[str],
+        *,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> RunOutcome:
         attempts: list[dict[str, object]] = report["attempts"]  # type: ignore[assignment]
         flagged: tuple[str, Path, dict[str, object]] | None = None
@@ -1259,9 +1417,14 @@ class ProviderRuntime:
             provider = self.registry[provider_name]
             attempt: dict[str, object] = {"provider": provider_name}
             attempts.append(attempt)
+            if progress_callback is not None:
+                progress_callback(f"provider:{provider_name}")
             try:
                 if provider_name in AI_INPAINT_PROVIDERS:
-                    result = provider.run(job, context)
+                    try:
+                        result = provider.run(job, context, progress_callback=progress_callback)  # type: ignore[call-arg]
+                    except TypeError:
+                        result = provider.run(job, context)  # type: ignore[call-arg]
                 else:
                     result = provider.run(job)
                 output_path = result.get("output_path")
@@ -1281,6 +1444,8 @@ class ProviderRuntime:
             if context is None or provider_name not in AI_INPAINT_PROVIDERS or not self.settings.qa_enabled:
                 attempt["status"] = "succeeded"
                 return self._finish(job, provider_name, Path(output_path), report, qa=None)
+            if progress_callback is not None:
+                progress_callback(f"quality_gate:{provider_name}")
             verdict = check_output(context.input_path, Path(output_path), context.detection)
             attempt["qa"] = verdict.as_report()
             if verdict.unchanged:

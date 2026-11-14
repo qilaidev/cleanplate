@@ -153,6 +153,8 @@ def build_eval_settings(base: Settings | None = None) -> Settings:
         storage_root=work,
         inbox_dir=work / "inbox",
         outbox_dir=work / "outbox",
+        work_dir=work / "work",
+        comfyui_output_dir=work / "comfy_spool",
         db_path=work / "eval.db",
     )
 

@@ -72,7 +72,11 @@ def production_safety_report(settings: Settings) -> dict[str, object]:
 def _storage_space_report(settings: Settings) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     seen: set[int] = set()
-    for label, path in (("inbox", settings.inbox_dir), ("outbox", settings.outbox_dir)):
+    for label, path in (
+        ("inbox", settings.inbox_dir),
+        ("outbox", settings.outbox_dir),
+        ("comfy_spool", settings.comfyui_output_dir),
+    ):
         try:
             path.mkdir(parents=True, exist_ok=True)
             usage = shutil.disk_usage(path)

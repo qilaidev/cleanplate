@@ -28,10 +28,11 @@ def run_file_cleanup(settings: Settings, repository: JobRepository, execute: boo
     jobs = repository.list_jobs_for_cleanup(cutoff)
     protected_paths = repository.list_protected_file_paths(cutoff)
     report["candidate_jobs"] = len(jobs)
+    seen_candidates: set[str] = set()
 
     for job in jobs:
-        clear_input = _is_expired_file(job.input_path, cutoff_timestamp, protected_paths)
-        clear_output = _is_expired_file(job.output_path, cutoff_timestamp, protected_paths)
+        clear_input = _is_expired_file(job.input_path, cutoff_timestamp, protected_paths, seen_candidates)
+        clear_output = _is_expired_file(job.output_path, cutoff_timestamp, protected_paths, seen_candidates)
         report["candidate_files"] += int(clear_input) + int(clear_output)
         if not execute:
             continue
@@ -43,28 +44,51 @@ def run_file_cleanup(settings: Settings, repository: JobRepository, execute: boo
         report["failed_files"] += int(clear_output and not output_deleted and bool(job.output_path))
         repository.clear_job_artifacts(job.job_id, clear_input=input_deleted, clear_output=output_deleted)
 
-    for directory in (settings.inbox_dir, settings.outbox_dir):
-        for path in directory.iterdir():
+    scan_roots: list[Path] = []
+    seen_roots: set[Path] = set()
+    for directory in (settings.inbox_dir, settings.outbox_dir, settings.comfyui_output_dir):
+        resolved_dir = directory.resolve()
+        if resolved_dir not in seen_roots:
+            seen_roots.add(resolved_dir)
+            scan_roots.append(directory)
+
+    for directory in scan_roots:
+        if not directory.exists():
+            continue
+        for path in sorted(directory.rglob("*")):
             if not path.is_file() or path.name == ".gitkeep":
                 continue
-            if path.stat().st_mtime >= cutoff_timestamp:
+            resolved = str(path.resolve())
+            if resolved in seen_candidates or resolved in protected_paths:
                 continue
-            if str(path.resolve()) in protected_paths:
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
                 continue
+            if mtime >= cutoff_timestamp:
+                continue
+            seen_candidates.add(resolved)
             report["candidate_files"] += 1
             if not execute:
                 continue
             try:
                 path.unlink()
                 report["deleted_files"] += 1
-                report["cleared_db_references"] += repository.clear_file_references(str(path.resolve()), cutoff)
+                report["cleared_db_references"] += repository.clear_file_references(resolved, cutoff)
             except OSError:
                 report["failed_files"] += 1
+        if execute:
+            _prune_empty_subdirs(directory)
 
     # Work directories of jobs whose worker died mid-run (normally removed at job end).
     if settings.work_dir.exists():
         for path in settings.work_dir.iterdir():
-            if not path.is_dir() or path.stat().st_mtime >= cutoff_timestamp:
+            if not path.is_dir():
+                continue
+            try:
+                if path.stat().st_mtime >= cutoff_timestamp:
+                    continue
+            except OSError:
                 continue
             report["candidate_files"] += 1
             if execute:
@@ -78,17 +102,39 @@ def run_file_cleanup(settings: Settings, repository: JobRepository, execute: boo
     return report
 
 
-def _is_expired_file(raw_path: str | None, cutoff_timestamp: float, protected_paths: set[str]) -> bool:
+def _prune_empty_subdirs(root: Path) -> None:
+    if not root.is_dir():
+        return
+    subdirs = sorted((p for p in root.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True)
+    for subdir in subdirs:
+        try:
+            if not any(subdir.iterdir()):
+                subdir.rmdir()
+        except OSError:
+            continue
+
+
+def _is_expired_file(
+    raw_path: str | None,
+    cutoff_timestamp: float,
+    protected_paths: set[str],
+    seen_candidates: set[str],
+) -> bool:
     if not raw_path:
         return False
     path = Path(raw_path)
     resolved = str(path.resolve())
-    return (
-        resolved not in protected_paths
-        and path.exists()
-        and path.is_file()
-        and path.stat().st_mtime < cutoff_timestamp
-    )
+    if (
+        resolved in seen_candidates
+        or resolved in protected_paths
+        or str(path) in protected_paths
+        or not path.exists()
+        or not path.is_file()
+        or path.stat().st_mtime >= cutoff_timestamp
+    ):
+        return False
+    seen_candidates.add(resolved)
+    return True
 
 
 def _delete_if_needed(raw_path: str | None, should_delete: bool) -> bool:

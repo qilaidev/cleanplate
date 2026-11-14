@@ -92,7 +92,7 @@ def create_app() -> FastAPI:
         init_runtime()
         yield
 
-    app = FastAPI(title="Cleanplate API", version="0.1.0", lifespan=_lifespan)
+    app = FastAPI(title="Cleanplate API", version="0.3.0", lifespan=_lifespan)
 
     @app.exception_handler(AppError)
     async def _handle_app_error(_: Request, exc: AppError) -> JSONResponse:

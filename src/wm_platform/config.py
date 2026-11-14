@@ -70,6 +70,9 @@ class Settings:
     no_watermark_policy: str
     qa_enabled: bool
     qa_residual_policy: str
+    comfyui_output_dir: Path
+    media_timeout_seconds: float = 300.0
+    job_watchdog_timeout_seconds: float = 1920.0
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -120,6 +123,9 @@ def load_settings() -> Settings:
     delogo_y = os.getenv("DWM_LOCAL_FALLBACK_DELOGO_Y")
     delogo_w = os.getenv("DWM_LOCAL_FALLBACK_DELOGO_W")
     delogo_h = os.getenv("DWM_LOCAL_FALLBACK_DELOGO_H")
+    job_claim_timeout_seconds = int(os.getenv("DWM_JOB_CLAIM_TIMEOUT_SECONDS", "300"))
+    comfyui_prompt_timeout_seconds = float(os.getenv("DWM_COMFYUI_PROMPT_TIMEOUT_SECONDS", "1800"))
+    default_watchdog_timeout = max(comfyui_prompt_timeout_seconds + 120.0, float(job_claim_timeout_seconds) * 2.0)
 
     return Settings(
         environment=os.getenv("DWM_ENV", "development").strip().lower() or "development",
@@ -133,7 +139,7 @@ def load_settings() -> Settings:
         default_api_key=os.getenv("DWM_DEFAULT_API_KEY", DEFAULT_DEV_API_KEY),
         max_upload_bytes=int(os.getenv("DWM_MAX_UPLOAD_BYTES", str(512 * 1024 * 1024))),
         worker_poll_interval_seconds=float(os.getenv("DWM_WORKER_POLL_INTERVAL_SECONDS", "1.0")),
-        job_claim_timeout_seconds=int(os.getenv("DWM_JOB_CLAIM_TIMEOUT_SECONDS", "300")),
+        job_claim_timeout_seconds=job_claim_timeout_seconds,
         job_claim_heartbeat_seconds=float(os.getenv("DWM_JOB_CLAIM_HEARTBEAT_SECONDS", "30.0")),
         callback_retry_count=int(os.getenv("DWM_CALLBACK_RETRY_COUNT", "3")),
         callback_retry_delay_seconds=float(os.getenv("DWM_CALLBACK_RETRY_DELAY_SECONDS", "1.0")),
@@ -174,8 +180,15 @@ def load_settings() -> Settings:
         work_dir=Path(os.getenv("DWM_WORK_DIR", storage_root / "work")).expanduser().resolve(),
         keep_work_files=_env_bool("DWM_KEEP_WORK_FILES", False),
         chunk_frames=int(os.getenv("DWM_CHUNK_FRAMES", "81")),
-        comfyui_prompt_timeout_seconds=float(os.getenv("DWM_COMFYUI_PROMPT_TIMEOUT_SECONDS", "1800")),
+        comfyui_prompt_timeout_seconds=comfyui_prompt_timeout_seconds,
         no_watermark_policy=_env_choice("DWM_NO_WATERMARK_POLICY", "fail", NO_WATERMARK_POLICIES),
         qa_enabled=_env_bool("DWM_QA_ENABLED", True),
         qa_residual_policy=_env_choice("DWM_QA_RESIDUAL_POLICY", "flag", QA_RESIDUAL_POLICIES),
+        comfyui_output_dir=Path(
+            os.getenv("DWM_COMFYUI_OUTPUT_DIR", storage_root / "comfy_spool")
+        ).expanduser().resolve(),
+        media_timeout_seconds=float(os.getenv("DWM_MEDIA_TIMEOUT_SECONDS", "300.0")),
+        job_watchdog_timeout_seconds=float(
+            os.getenv("DWM_JOB_WATCHDOG_TIMEOUT_SECONDS", str(default_watchdog_timeout))
+        ),
     )

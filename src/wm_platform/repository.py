@@ -407,6 +407,7 @@ class JobRepository:
             for path in (row["input_path"], row["output_path"]):
                 if path:
                     protected.add(str(path))
+                    protected.add(str(Path(path).resolve()))
         return protected
 
     def list_jobs_for_cleanup(self, older_than: datetime) -> list[JobRecord]:
