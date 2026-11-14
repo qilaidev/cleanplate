@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -60,12 +61,16 @@ def auth_headers(settings):
 
 @pytest.fixture(autouse=True)
 def clean_runtime_state(settings):
-    for directory in (settings.inbox_dir, settings.outbox_dir):
+    for directory in (settings.inbox_dir, settings.outbox_dir, settings.comfyui_output_dir):
+        if not directory.exists():
+            continue
         for path in directory.iterdir():
             if path.name == ".gitkeep":
                 continue
             if path.is_file():
                 path.unlink()
+            elif path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
 
     with db_connection(settings) as connection:
         connection.execute("DELETE FROM callback_events")

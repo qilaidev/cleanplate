@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import hashlib
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from wm_platform.config import Settings
 from wm_platform.runtime_contract import (
+    _normalize_sha256,
     copy_runtime_contract_files,
     expected_model_entries,
+    extract_http_download_specs,
     huggingface_download_filename,
     is_fatal_required_model,
     is_model_file_target,
@@ -19,6 +24,25 @@ from wm_platform.runtime_contract import (
     resolve_runtime_relative,
     validate_hf_component,
 )
+
+HTTP_MODEL_DOWNLOAD_TIMEOUT = httpx.Timeout(connect=30.0, read=120.0, write=30.0, pool=30.0)
+
+
+def _verify_file_sha256(path: Path, expected_sha256: str | None) -> None:
+    if not expected_sha256:
+        return
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    actual = digest.hexdigest().lower()
+    if actual != expected_sha256.lower():
+        raise RuntimeError(
+            f"sha256 mismatch for {path.name}: expected {expected_sha256.lower()}, got {actual}"
+        )
 
 
 class RuntimeInstaller:
@@ -164,6 +188,36 @@ class RuntimeInstaller:
             raise RuntimeError("huggingface_hub is required to download models") from exc
         return hf_hub_download, snapshot_download
 
+    def _http_download_file(self, url: str, target: Path, expected_sha256: str | None = None) -> None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_file() and expected_sha256:
+            try:
+                _verify_file_sha256(target, expected_sha256)
+                return
+            except RuntimeError:
+                target.unlink(missing_ok=True)
+
+        temp_path = target.with_name(f"{target.name}.tmp")
+        digest = hashlib.sha256()
+        try:
+            with httpx.Client(follow_redirects=True, timeout=HTTP_MODEL_DOWNLOAD_TIMEOUT) as client:
+                with client.stream("GET", url) as response:
+                    response.raise_for_status()
+                    with temp_path.open("wb") as output:
+                        for chunk in response.iter_bytes(chunk_size=1024 * 1024):
+                            if chunk:
+                                digest.update(chunk)
+                                output.write(chunk)
+            if expected_sha256 and digest.hexdigest().lower() != expected_sha256.lower():
+                raise RuntimeError(
+                    f"sha256 mismatch for {target.name}: expected {expected_sha256.lower()}, got {digest.hexdigest().lower()}"
+                )
+            temp_path.replace(target)
+        except Exception:
+            if temp_path.exists():
+                temp_path.unlink()
+            raise
+
     def _ensure_models(self) -> list[str]:
         messages: list[str] = []
         required_failures: list[str] = []
@@ -207,7 +261,33 @@ class RuntimeInstaller:
             raise error
         return messages
 
+    def _download_http_specs(self, entry: dict[str, Any], dest: Path, specs: list[dict[str, str | None]]) -> None:
+        if is_model_file_target(entry):
+            if len(specs) != 1:
+                raise RuntimeError(f"file model target expected 1 download spec, got {len(specs)}")
+            dest_root = dest.parent.resolve()
+            dest_resolved = dest.resolve()
+            if not dest_resolved.is_relative_to(dest_root):
+                raise RuntimeError(f"model dest escaped destination root: {dest}")
+            spec = specs[0]
+            self._http_download_file(str(spec["url"]), dest_resolved, spec.get("sha256"))
+            return
+
+        dest.mkdir(parents=True, exist_ok=True)
+        dest_resolved = dest.resolve()
+        for spec in specs:
+            rel_name = str(spec["filename"] or "")
+            target = (dest / rel_name).resolve()
+            if not target.is_relative_to(dest_resolved):
+                raise RuntimeError(f"download target escaped destination root: {target}")
+            self._http_download_file(str(spec["url"]), target, spec.get("sha256"))
+
     def _download_model_entry(self, entry: dict[str, Any], dest: Path) -> None:
+        http_specs = extract_http_download_specs(entry, dest)
+        if http_specs is not None:
+            self._download_http_specs(entry, dest, http_specs)
+            return
+
         source = str(entry.get("source") or "").strip()
         parsed = parse_huggingface_source(source)
         if parsed is None:
@@ -220,6 +300,7 @@ class RuntimeInstaller:
             raise RuntimeError("huggingface repo_id is empty")
         parsed = {**parsed, "repo_id": repo_id, "revision": revision, "subpath": subpath}
         hf_hub_download, snapshot_download = self._huggingface_fns()
+        expected_sha256 = _normalize_sha256(entry.get("sha256"))
         if is_model_file_target(entry):
             filename = validate_hf_component(huggingface_download_filename(entry, parsed, dest), "filename")
             if not filename:
@@ -237,6 +318,7 @@ class RuntimeInstaller:
             if downloaded != dest_resolved:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(downloaded, dest)
+            _verify_file_sha256(dest, expected_sha256)
             return
 
         dest.mkdir(parents=True, exist_ok=True)

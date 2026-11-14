@@ -33,6 +33,20 @@ models:
     description: ProPainter prior model bundle
     expected_path: .runtime/ComfyUI/models/DiffuEraser/propainter
     source: https://github.com/sczhou/ProPainter/releases/tag/v0.1.0
+    must_contain:
+      - ProPainter.pth
+      - raft-things.pth
+      - recurrent_flow_completion.pth
+    files:
+      - filename: ProPainter.pth
+        url: https://github.com/sczhou/ProPainter/releases/download/v0.1.0/ProPainter.pth
+        sha256: 12c070c4b48f374c91d8a2a17851140b85c159621080989f9e191bbc18bd6591
+      - filename: raft-things.pth
+        url: https://github.com/sczhou/ProPainter/releases/download/v0.1.0/raft-things.pth
+        sha256: fcfa4125d6418f4de95d84aec20a3c5f4e205101715a79f193243c186ac9a7e1
+      - filename: recurrent_flow_completion.pth
+        url: https://github.com/sczhou/ProPainter/releases/download/v0.1.0/recurrent_flow_completion.pth
+        sha256: 22939a1a7900da878dbe1ccd011d646b1bfb30b8290039d8ff0e0c2fefbfd283
     license: S-Lab License 1.0 (non-commercial)
     commercial_use: false
   - name: clip-l

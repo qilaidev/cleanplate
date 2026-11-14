@@ -191,6 +191,66 @@ def huggingface_download_filename(entry: dict[str, Any], parsed: dict[str, str |
     return dest.name
 
 
+def _normalize_sha256(raw: object) -> str | None:
+    if not isinstance(raw, str):
+        return None
+    digest = raw.strip().lower()
+    if not digest:
+        return None
+    if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+        raise RuntimeError(f"invalid sha256 digest: {raw!r}")
+    return digest
+
+
+def extract_http_download_specs(entry: dict[str, Any], dest: Path) -> list[dict[str, str | None]] | None:
+    """Return validated HTTP file download specs for non-HF release assets (e.g. GitHub Releases)."""
+    declared_files = entry.get("files")
+    if isinstance(declared_files, list) and declared_files:
+        specs: list[dict[str, str | None]] = []
+        for item in declared_files:
+            if not isinstance(item, dict):
+                raise RuntimeError("model manifest 'files' entries must be mappings")
+            raw_url = str(item.get("url") or "").strip()
+            parsed_url = urlparse(raw_url)
+            if parsed_url.scheme not in {"https", "http"} or not parsed_url.netloc:
+                raise RuntimeError(f"invalid model file download url: {raw_url!r}")
+            filename = validate_hf_component(
+                str(item.get("filename") or Path(parsed_url.path).name).strip(),
+                "filename",
+            )
+            if not filename:
+                raise RuntimeError(f"missing filename for model download url: {raw_url}")
+            specs.append(
+                {
+                    "url": raw_url,
+                    "filename": filename,
+                    "sha256": _normalize_sha256(item.get("sha256")),
+                }
+            )
+        return specs
+
+    source = str(entry.get("source") or "").strip()
+    if not source or parse_huggingface_source(source) is not None:
+        return None
+    parsed_url = urlparse(source)
+    if parsed_url.scheme not in {"https", "http"} or not parsed_url.netloc:
+        return None
+    url_name = Path(parsed_url.path).name
+    if not is_weight_filename(url_name):
+        return None
+    filename = dest.name if is_model_file_target(entry) else str(entry.get("filename") or url_name).strip()
+    validated = validate_hf_component(filename, "filename")
+    if not validated:
+        return None
+    return [
+        {
+            "url": source,
+            "filename": validated,
+            "sha256": _normalize_sha256(entry.get("sha256")),
+        }
+    ]
+
+
 def parse_huggingface_source(source: str | None) -> dict[str, str | None] | None:
     raw = (source or "").strip()
     if not raw:

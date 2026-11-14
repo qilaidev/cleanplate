@@ -132,7 +132,7 @@ uv run cleanplate-worker --doctor                     # 检查 providers.runnabl
 | `DWM_ENV` | `development` | `production` 时拒绝默认 API key |
 | `DWM_DEFAULT_API_KEY` | `dev-secret-key` | 请求头 `X-API-Key` |
 | `DWM_API_HOST` / `DWM_API_PORT` | `127.0.0.1` / `8000` | `cleanplate-api` 默认监听地址与端口 |
-| `DWM_STORAGE_ROOT` | `storage` | inbox / outbox / work / app.db |
+| `DWM_STORAGE_ROOT` | `storage` | inbox / outbox / work / comfy_spool / app.db |
 | `DWM_COMFYUI_API_URL` | `http://127.0.0.1:8188` | 每个 worker 可以指向不同 GPU 上的 ComfyUI |
 | `DWM_DETECTOR_MODE` | `auto` | `static_overlay` / `sam3_text` / `auto`（静态不确定时再跑 SAM 3.1） |
 | `DWM_WATERMARK_DETECT_PROMPT` | `watermark, logo, on-screen text overlay, corner badge, platform stamp` | SAM 3.1 文本提示，支持 `watermark:3` 限实例数 |
@@ -160,7 +160,7 @@ uv run cleanplate-worker --doctor                     # 检查 providers.runnabl
 | 主修复 | MiniMax-Remover 1.3B | **CC-BY-NC-4.0** |
 | 次修复 | DiffuEraser + ProPainter | Apache-2.0 / **S-Lab（非商用）** |
 
-`--install-runtime --models` 按清单下载约 14 GB（`MiniMax-Remover` 2.8 GB、`DiffuEraser` 8.8 GB、`sam3.1` 1.7 GB、`sd-vae-ft-mse` 0.3 GB、`clip_l` 0.25 GB）；加上仓库和 `.runtime/.venv`，`.runtime` 稳定后约 18–20 GB，`--cleanup` 不回收它。另外 `propainter` 在清单里标着 `required: true`，但它的 source 是 GitHub release 页，安装器只认 Hugging Face，需要手动把 5 个权重文件（共约 0.4 GB）放到 `.runtime/ComfyUI/models/DiffuEraser/propainter/`，否则 `comfy_diffueraser` 一直 `installed=false`。
+`--install-runtime --models` 按清单自动下载并校验约 14.2 GB 权重（含 Hugging Face 上的 `MiniMax-Remover` 2.8 GB、`DiffuEraser` 8.8 GB、`sam3.1` 1.7 GB、`sd-vae-ft-mse` 0.3 GB、`clip_l` 0.25 GB，以及 GitHub Release 上的 `ProPainter` 3 个先验权重约 0.2 GB，带 SHA-256 校验）；加上仓库和 `.runtime/.venv`，`.runtime` 稳定后约 18–20 GB，`--cleanup` 不回收它。
 
 选型依据、最新调研与商用替代候选见 [`docs/model-stack.md`](docs/model-stack.md)；怎么持续追踪新模型见 [`docs/model-scouting.md`](docs/model-scouting.md)（`uv run cleanplate-scout --days 30`）。
 

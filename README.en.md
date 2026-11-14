@@ -133,7 +133,7 @@ All settings are configured via environment variables (see [`.env.example`](.env
 | `DWM_ENV` | `development` | Rejects the default dev API key when set to `production` |
 | `DWM_DEFAULT_API_KEY` | `dev-secret-key` | Required `X-API-Key` header value |
 | `DWM_API_HOST` / `DWM_API_PORT` | `127.0.0.1` / `8000` | Bind address and port for `cleanplate-api` |
-| `DWM_STORAGE_ROOT` | `storage` | Root directory for `inbox`, `outbox`, `work`, and `app.db` |
+| `DWM_STORAGE_ROOT` | `storage` | Root directory for `inbox`, `outbox`, `work`, `comfy_spool`, and `app.db` |
 | `DWM_COMFYUI_API_URL` | `http://127.0.0.1:8188` | ComfyUI endpoint; each worker can target a separate GPU instance |
 | `DWM_DETECTOR_MODE` | `auto` | `static_overlay` / `sam3_text` / `auto` (falls back to SAM 3.1 when uncertain) |
 | `DWM_WATERMARK_DETECT_PROMPT` | `watermark, logo, on-screen text overlay, corner badge, platform stamp` | SAM 3.1 text prompt (supports `:N` instance cap) |
@@ -160,7 +160,7 @@ Full configuration reference is in [`src/wm_platform/config.py`](src/wm_platform
 | Detection (Default) | OpenCV Static/Edge Detector | MIT | Scans outer 22% border bands for corner/static overlays |
 | Detection (Fallback) | SAM 3.1 (ComfyUI native) | SAM License | Handles moving/central text watermarks; requires GPU |
 | Primary Inpainting | MiniMax-Remover 1.3B | **CC-BY-NC-4.0** | Non-commercial weights |
-| Secondary Inpainting | DiffuEraser + ProPainter | Apache-2.0 / **S-Lab 1.0 (NC)** | Requires manual placement of 5 ProPainter weights (~0.4 GB) |
+| Secondary Inpainting | DiffuEraser + ProPainter | Apache-2.0 / **S-Lab 1.0 (NC)** | Auto-downloads HF + GitHub Release ProPainter weights (SHA-256 verified) |
 
 `--install-runtime --models` downloads ~14 GB of weights (~18–20 GB total `.runtime/` footprint). See [`docs/model-stack.md`](docs/model-stack.md) and [`docs/model-scouting.md`](docs/model-scouting.md) (`uv run cleanplate-scout --days 30`) for commercial alternatives and model evaluation.
 
