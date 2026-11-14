@@ -29,13 +29,26 @@ def replace_placeholders(payload: object, replacements: dict[str, object]) -> ob
     return payload
 
 
-def set_frame_window(prompt: dict[str, dict[str, object]], start: int, count: int) -> dict[str, dict[str, object]]:
-    """Point every video loader (source and mask) at the same frame window."""
+def set_frame_window(
+    prompt: dict[str, dict[str, object]],
+    start: int,
+    count: int,
+    *,
+    static_mask_video: str | None = None,
+) -> dict[str, dict[str, object]]:
+    """Point every video loader (source and mask) at the same frame window.
+
+    When `static_mask_video` is provided, loaders reading that static mask file keep
+    `skip_first_frames = 0` so a single chunk-sized mask clip serves the whole video.
+    """
     for node in prompt.values():
         if isinstance(node, dict) and node.get("class_type") in LOADER_NODE_TYPES:
             inputs = node.setdefault("inputs", {})
             if isinstance(inputs, dict):
-                inputs["skip_first_frames"] = int(start)
+                is_static_mask = (
+                    static_mask_video is not None and str(inputs.get("video", "")) == static_mask_video
+                )
+                inputs["skip_first_frames"] = 0 if is_static_mask else int(start)
                 inputs["frame_load_cap"] = int(count)
     return prompt
 
