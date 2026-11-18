@@ -1,16 +1,16 @@
 # 模型栈
 
-最近一次复核：**2026-09-30**（上一轮 2026-09-11）。方法见 [model-scouting.md](model-scouting.md)，本轮自动扫描快照在 `eval/scouting/2026-09-30-auto.md`。
+最近一次复核：**2026-11-18**（上一轮 2026-09-30）。方法见 [model-scouting.md](model-scouting.md)，本轮自动扫描快照在 `eval/scouting/2026-11-18-auto.md`。
 
 ## 当前栈
 
 | 环节 | 组件 | 版本 / 权重 | 许可 | 状态 |
 | --- | --- | --- | --- | --- |
-| 检测（默认） | 静态角标 + 半透明持久边缘检测 | 本仓库 `watermark_detect.py` | MIT | 只看画面四周 22% 的边带 |
-| 检测（兜底） | SAM 3.1 文本提示检测 + 视频跟踪 | ComfyUI 原生节点，`Comfy-Org/sam3.1` `sam3.1_multiplex_fp16.safetensors` | SAM License | 覆盖画面中央、移动水印；需要 GPU |
-| 主修复 | MiniMax-Remover 1.3B（Wan2.1 底座） | `zibojia/minimax-remover`，节点 `1038lab/ComfyUI-MiniMax-Remover` | **CC-BY-NC-4.0** | 节点 2025-06 后无更新 |
-| 次修复 | DiffuEraser + ProPainter 先验 | `lixiaowen/diffuEraser`，ProPainter v0.1.0 | Apache-2.0 / **S-Lab 1.0（非商用）** | 节点 2026-03 后无更新 |
-| 运行时 | ComfyUI | v0.38.1（`Comfy-Org/ComfyUI`） | GPL-3.0（独立进程，不随本仓库分发） | 原生 SAM3 节点自 v0.35 无改动 |
+| 检测（默认） | 静态角标 + 半透明持久边缘检测 | 本仓库 `watermark_detect.py` | MIT | 只看画面四周 22% 的边带，纯 CPU 采样 |
+| 检测（兜底） | SAM 3.1 文本提示检测 + 视频跟踪 | ComfyUI 原生节点，`Comfy-Org/sam3.1` `sam3.1_multiplex_fp16.safetensors` | SAM License | 覆盖画面中央与移动水印；上限 `<=180` 抽样帧 / `<=960p` 防爆显存，3 帧流式内存生成时序 mask |
+| 主修复 | MiniMax-Remover 1.3B（Wan2.1 底座） | `zibojia/minimax-remover`，节点 `1038lab/ComfyUI-MiniMax-Remover` | **CC-BY-NC-4.0** | 节点 2025-06 后无更新；本仓库通过 81 帧分段、多 ROI 裁剪与无水印分段直通（`bypassed_chunks`）加固 |
+| 次修复 | DiffuEraser + ProPainter 先验 | `lixiaowen/diffuEraser`，ProPainter v0.1.0（GitHub Release 3 权重自动下载 + SHA-256 校验） | Apache-2.0 / **S-Lab 1.0（非商用）** | 节点 `9ef5c12f`（2026-10-23）已迁移至 ComfyUI 原生 `ModelPatcher`，移除旧 `diffusers` 依赖冲突并在采样后主动释放显存 |
+| 运行时 | ComfyUI | v0.45.0（`Comfy-Org/ComfyUI` `989d93d0`） | GPL-3.0（独立进程，不随本仓库分发） | 原生支持 V3 `io.ComfyNode`、`SAM3_VideoTrack` 与 `--disable-api-nodes` |
 
 ## 许可证（商用前必看）
 
@@ -23,37 +23,40 @@
 
 结论：**当前默认栈只适合研究/内部评估**。商业工作流要么取得授权，要么换到许可宽松的修复模型（见下方"候选"里的 Wan2.1 VACE 系、D2DF、CLEAR），替换要走 [model-scouting.md](model-scouting.md) 的评测门槛。
 
-## 本轮（2026-09-30）结论
+## 本轮（2026-11-18）结论
 
-1. **主链不换**。没有同时满足"效果明显更好 + 权重可用 + 许可可商用 + 能进 ComfyUI"的新模型。
-2. **工程侧的缺陷比模型本身更要紧**，本轮已修（见 CHANGELOG 0.3.0）：
-   - MiniMax 节点把整段视频一次送进扩散模型，长视频必 OOM；且不是 4k+1 帧时会用冻结帧补齐。→ 按 81 帧分段。
-   - 同一节点**捕获所有异常后原样返回输入帧**，任务"成功"但水印还在。→ 出片质检（`INPAINT_NO_EFFECT`）。
-   - 分离的多个水印共用一个外接框，常退化为整帧修复。→ 多 ROI 串联。
-3. **新基准数据**（BeyondMasks，ECCV'26，180 对真实视频）：DiffuEraser 25.19 dB / MiniMax 23.20 dB（PSNR），MiniMax 的 VLM 去除分略高（3.63 vs 3.49）。两者互有胜负，保持"主 + 次"链并用质检兜底是合理的。但这些基准都是**物体删除**，不是水印/字幕；我们自己的 clean-plate 评测集仍是最终依据。
+1. **主链不换，运行时升级至 ComfyUI v0.45.0 + 原生核 DiffuEraser**。近 55 天未出现同时满足"效果显著优于现役 + 权重公开可下 + 许可完全可商用 + 可稳定接入单卡 24 GB"的视频去水印/擦除新模型；但上游 `smthemex/ComfyUI_DiffuEraser`（`9ef5c12f`，2026-10-23）已完成 ComfyUI V3 原生 `ModelPatcher` 重构、彻底去掉 `diffusers` 版本锁冲突并在推理后自动 `unload()`，本轮随 ComfyUI `v0.45.0`（2026-11-10）一并升级锁定。
+2. **管线工程加固闭环（v0.4.0）**：
+   - `SAM 3.1` 长视频全帧跟踪显存与内存封顶（`<=180` 抽帧、`<=960p`、3 帧流式时序膨胀）。
+   - 动态/间歇水印的**干净分段直通（Clean-Chunk GPU Bypass）**：无水印窗口直接走 FFmpeg 切片跳过扩散推理，兼顾零像素损耗与吞吐翻倍。
+   - 音画与色彩无损闭环：容器感知无损音轨流拷贝（`-c:a copy`）、输入端 `-t` 截断防尾帧丢失、SDR `bt709` VUI/`setparams` 色彩元数据透传防偏色。
+   - `ProPainter` 3 个 GitHub Release 先验权重纳入 `--install-runtime --models` 自动流式下载与 SHA-256 强校验。
+3. **基准参考**：BeyondMasks（ECCV'26，180 对真实视频）上 DiffuEraser 25.19 dB / MiniMax 23.20 dB（PSNR），MiniMax 的 VLM 去除分略高（3.63 vs 3.49）；叠加 2026-10/11 新发布的 `PROVE`（Apache-2.0）与 `MFVSR`（硬字幕基准），保持"MiniMax 主 + DiffuEraser 次 + 质检兜底"双链仍是当前最稳健组合，最终替换仍以本仓 clean-plate 评测集为准。
 
 ## 候选与观察名单
 
-| 模型 | 日期 | 许可 / 权重 | 与我们的关系 | 决定 |
+| 模型 / 基准 | 日期 | 许可 / 权重 | 与我们的关系 | 决定 |
 | --- | --- | --- | --- | --- |
-| **CLEAR**（ICML'26 Oral） | 权重 2026-03-24 | Apache-2.0，`charlesw09/CLEAR-mask-free-video-subtitle-removal`（Wan2.1-Fun-1.3B-Control LoRA） | **无需 mask 的字幕擦除**；上一轮误记为"未开源" | **试用**：作为字幕类任务的专用链；约 4.9 s/帧，只给字幕场景用；无 ComfyUI 节点，需要独立推理进程 |
-| **D2DF**（ECCV'26） | 2026-07-16 | 代码 Apache-2.0，`BigD233333/D2DF`；底座 CogVideoX-5B-I2V（CogVideoX License，商用条款待核） | 一步去除，RORD 上 PSNR 32.20 vs MiniMax 30.60，VFID 反而更差；约 1 s/片段 | **试用**：候选主修复替代，先核底座许可 |
-| Wan2.1/2.2 VACE、Fun-Inpaint | ComfyUI 原生 | Apache-2.0 | 许可最干净的通用视频 inpaint；BeyondMasks 上分数偏低（VACE 19.99 dB） | 备选：商用场景的兜底修复链 |
+| **CLEAR**（ICML'26 Oral） | 权重 2026-03-24 | Apache-2.0，`charlesw09/CLEAR-mask-free-video-subtitle-removal`（Wan2.1-Fun-1.3B-Control LoRA） | **无需 mask 的字幕擦除** | **试用**：作为字幕类任务的专用链；约 4.9 s/帧，需独立推理进程 |
+| **D2DF**（ECCV'26） | 2026-07-16 | 代码 Apache-2.0，`BigD233333/D2DF`；底座 CogVideoX-5B-I2V（商用条款待核） | 一步去除，RORD 上 PSNR 32.20 vs MiniMax 30.60，约 1 s/片段 | **试用**：候选主修复替代，先核底座许可 |
+| **Wan2.1/2.2 VACE、Fun-Inpaint** | ComfyUI 原生 | Apache-2.0 | 许可最干净的通用视频 inpaint；BeyondMasks 上分数偏低（VACE 19.99 dB） | 备选：商用场景的合规修复链 |
+| **Hint, Not Hole**（`arXiv:2611.13711`） | 2026-11-10 | 论文已发，权重待开源 | **专为硬字幕/卡拉OK歌词/台标/水印设计的定位鲁棒视频叠加物擦除**（容忍粗略提示框，避免洞内幻觉） | **重点观察**：方向与 Cleanplate 最吻合，权重与许可明确后第一时间实测 |
+| **StreamErase**（`arXiv:2610.20137`） | 2026-10-14 | 论文已发，权重待开源 | 因果流式超低延迟视频擦除，解决分钟级扩散延迟 | 观察：发布权重后评估长视频吞吐收益 |
+| **LensErase**（`arXiv:2610.18072`） | 2026-10-13 | 论文已发，权重待开源 | 通用 mask 驱动 Erase Anything 基础模型 | 观察 |
+| **YOSE**（CVPR'26，`Wucy0519/YOSE-CVPR26`） | 2026-11-04 | `NOASSERTION`（许可未声明） | Token 选择加速 DiT 视频物体擦除 | 观察：待补齐开源许可证与预训练权重 |
+| **PROVE**（`xiaomi-research/prove`） | 2026-11-16 | Apache-2.0 | 图像/视频擦除开源评测集与基准代码 | **参考评测**：吸收评测协议补充实机基线 |
+| **MFVSR**（`hxyiiii/MFVSR`，`arXiv:2610.18461`） | 2026-10-16 | 许可未声明 | 多样式高分辨率视频硬字幕擦除基准 | 观察：核实数据集许可后再决定是否抽样对照 |
 | EffectErase（CVPR'26） | 2026-03 | CC-BY-NC-4.0 | 面向物体副作用（阴影/反射） | 不接：许可 + 目标不符 |
-| EffectLearner | 2026-08-06 | 未发布权重 | ROSE-Bench 领先 | 观察 |
-| SEDiT（一步无 mask 字幕擦除） | 2026-05-14 | 未发布 | 1080p 65 帧 4 s | 观察：发布后与 CLEAR 对比 |
-| BridgeRemoval（ICML'26） | 2026-01 | 仍无权重 | — | 观察 |
-| GenEraser / DualEraser | 2026-05 | 仓库 Apache-2.0，无权重 | — | 观察 |
-| Object-WIPER | 2026-01 | 官方仅指标；有非官方 Apache-2.0 移植 | HunyuanVideo 底座，重 | 不接 |
-| Netflix VOID | 2026-04 | Apache-2.0；ComfyUI 已原生（2026-05） | 40 GB+，面向物理交互 | 不接：批量场景成本过高 |
+| EffectLearner / SEDiT / BridgeRemoval | 2026-01–08 | 未发布权重 | 物体擦除 / 一步无 mask 字幕擦除 | 观察 |
+| Netflix VOID | 2026-04 | Apache-2.0；ComfyUI 原生 | 40 GB+，面向物理交互重场景 | 不接：批量去水印场景单卡成本过高 |
 | VOR-Bench（BMVC'26） | 2026-09-15 | 待发布 | VLM 打分，与人评 ρ>0.9 | 发布后接入评测 |
 
 ## 检测器
 
-仍然**没有许可宽松、能定位（出框）的公开水印检测模型**：
+仍然**没有许可干净、开箱可商用的专用公开水印检测框模型**：
 
 - `corzent/yolov12x-dino3-watermark-detection`、`ayan4m1/Watermark-Detection-YOLO26-ONNX`、`qfisch/yolov8n-watermark-detection`：AGPL，不引入。
-- `Gebsfrom404/yolo-watermark-detection-collection` 标 MIT，但基于 Ultralytics 且部分转载，许可可疑。
+- `Gebsfrom404/yolo-watermark-detection-collection` 与 2026-10 新出的 `Richard-ZZZZZ/video-watermark-removal`（卡片标 MIT，实则基于 Ultralytics YOLOv8 训练与推理）：存在 **AGPL 传染风险**，按许可门禁拒绝引入。
 - `prithivMLmods/Watermark-Detection-SigLIP2`（Apache-2.0，94% 准确率）只做**有/无**二分类，不出位置。可作为便宜的前置判断，减少对"干净视频"跑 SAM 3.1。**试用**。
 - 长期路线：用 Apache-2.0 的 RF-DETR 在自造合成水印数据上微调一个定位器（`bastienp/visible-watermark-pita` 数据集未标许可，不直接用）。
 
@@ -61,11 +64,11 @@
 
 | 组件 | 锁定 | 说明 |
 | --- | --- | --- |
-| ComfyUI | v0.38.1 `20ca544e` | 仓库迁到 Comfy-Org；v0.35→v0.38 去掉了 torchaudio 依赖、改了 assets 系统；SAM3 相关 open issue #16675（选 CLIP 设备时报错）、#15811（`:N` 后缀混进 prompt） |
-| VideoHelperSuite | `4d907bee`（2026-09-01） | 已是最新 |
-| ComfyUI_DiffuEraser | `c8461876`（2026-03-27） | 已是最新，低活跃 |
-| ComfyUI-MiniMax-Remover | `5957d627`（2025-06-27） | 无人维护；替代是 `kijai/ComfyUI-WanVideoWrapper` 的 `WanVideoMiniMaxRemoverEmbeds`（支持 context window），迁移需要重写 workflow 并实机验证 |
-| huggingface_hub | `<1` | 已出 2.0（2026-09-24，httpx2、默认系统证书库）；升级前需去掉 `resume_download` 等旧参数 |
+| ComfyUI | v0.45.0 `989d93d0`（2026-11-10） | 原生支持 V3 节点 Schema、`SAM3_VideoTrack` / `SAM3_TrackToMask`、`--output-directory` 隔离暂存与 `--disable-api-nodes` 禁用外部付费 API 节点 |
+| VideoHelperSuite | `4d907bee`（2026-09-02） | 截至 2026-11-18 仍为上游最新主干提交 |
+| ComfyUI_DiffuEraser | `9ef5c12f`（2026-10-23） | 已重写为 ComfyUI 原生 `ModelPatcher` 推理核，移除旧版 `diffusers` 强锁冲突，采样结束自动卸载显存 |
+| ComfyUI-MiniMax-Remover | `5957d627`（2025-06-27） | 上游停止更新；替代方向为 `kijai/ComfyUI-WanVideoWrapper` 的 `WanVideoMiniMaxRemoverEmbeds`，迁移需实机对齐效果后切换 |
+| huggingface_hub | `>=0.24.0,<1` | 保持 `<1` 稳定下载契约；ProPainter 3 项 GitHub Release 权重由 `runtime_installer.py` 直接 HTTP 流式下载并做 SHA-256 校验 |
 
 ## 明确不做
 

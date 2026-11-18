@@ -2,14 +2,26 @@
 
 Format: Keep a Changelog. Versioning: SemVer.
 
-## [Unreleased]
+## [0.4.0] - 2026-11-18
+
+Production runtime hardening, lossless A/V & SDR color preservation, bounded SAM 3.1 streaming, OpenAPI 3.1 Agent-Ready contract, and Nov 2026 runtime/model re-survey. Verified across 156 automated tests against mocked ComfyUI plus real `ffmpeg`/`ffprobe`.
 
 ### Added
 
-- Docs record the measured configuration facts: `.runtime` needs about 18–20 GB (roughly 14 GB of weights plus repositories and `.runtime/.venv`), and `--cleanup` never reclaims it.
-- Docs state that `propainter` cannot be downloaded by the installer (its source is a GitHub release page) and must be placed manually, and that skipping it leaves `comfy_diffueraser` at `installed=false`.
-- Docs warn that `HTTP_PROXY` / `HTTPS_PROXY` make `--doctor` and `--comfyui-health` report a misleading `502 Bad Gateway` for `127.0.0.1:8188`; `NO_PROXY=127.0.0.1,localhost` is required and is now in `.env.example`.
-- Docs add the non-CUDA boundary: Apple Silicon runs ComfyUI on MPS only, against the 24 GB+ VRAM CUDA target, and neither AI chain has real-GPU evaluation numbers.
+- **Clean-chunk GPU bypass** (`provider_runtime.run_comfy_chunks`, `media.extract_frame_window`): for temporal/intermittent overlays, 81-frame windows whose `active_frames` mask is empty bypass ComfyUI diffusion completely and are sliced directly via FFmpeg (`report.plan.inpainted_chunks` / `bypassed_chunks`).
+- **SHA-256 verified multi-source weight installer** (`runtime_installer.py`, `.runtime/models/manifest.yaml`): `--install-runtime --models` now downloads `ProPainter.pth`, `raft-things.pth`, and `recurrent_flow_completion.pth` directly from GitHub Releases with streaming SHA-256 verification and atomic `.tmp` replacement alongside Hugging Face snapshots.
+- **Bounded SAM 3.1 VRAM & O(1) RAM temporal mask streaming** (`watermark_detect.py`): caps full-clip SAM 3.1 tracking to `<=180` strided frames at `<=960p` and streams `+-1` neighbor temporal mask padding with at most 3 frames in RAM.
+- **Lossless audio muxing, SDR color-tag preservation & tail-frame protection** (`media.py`): container-aware lossless stream copy (`-c:a copy` for MP4/MOV/MKV compatible codecs), demux `-t` audio clamping instead of `-shortest` so tail video frames are never truncated, SDR VUI/filtergraph `setparams` color-tag preservation (`bt709` / `smpte170m`), `+faststart` MP4 output, and duration-scaled media timeouts (`DWM_MEDIA_TIMEOUT_SECONDS`).
+- **Isolated ComfyUI spool, stage watchdog & orphan prompt cancellation** (`comfy_jobs.py`, `worker_service.py`, `maintenance.py`): isolates `--output-directory` to `storage/comfy_spool` (`DWM_COMFYUI_OUTPUT_DIR`), cancels/interrupts orphaned ComfyUI prompts (`/queue` delete + `/interrupt`) on client timeout, and adds a stage-progress watchdog (`DWM_JOB_WATCHDOG_TIMEOUT_SECONDS`) so stalled worker claims are reclaimed automatically.
+- **Loopback proxy bypass & `--disable-api-nodes` hardening** (`comfy_runtime.py`): local ComfyUI HTTP calls (`127.0.0.1`, `localhost`, `::1`) automatically set `trust_env=False` to prevent `HTTP_PROXY` `502 Bad Gateway` misrouting, and managed ComfyUI startups pass `--disable-api-nodes`.
+- **SSRF & OpenAPI 3.1 contract hardening** (`callbacks.py`, `api_app.py`, `dependencies.py`): `validate_callback_url` blocks RFC 6598 CGNAT (`100.64.0.0/10`), benchmark (`198.18.0.0/15`), IPv4-mapped IPv6 literals, and all non-global IPs; `/openapi.json` and `/docs` expose `ApiKeyAuth` (`X-API-Key`), typed health/provider schemas, and stable `operationId`s across all 8 endpoints.
+- **Python 3.13 support, PEP 735 `[dependency-groups]`, and `CITATION.cff`**.
+
+### Changed
+
+- Runtime lock upgraded to `Comfy-Org/ComfyUI` **v0.45.0** (`989d93d0`, 2026-11-10) and `smthemex/ComfyUI_DiffuEraser` **`9ef5c12f`** (2026-10-23, ComfyUI-native `ModelPatcher` core without legacy `diffusers` dependency conflicts); `workflows/diffueraser_mask_api.json` updated to match V3 node inputs.
+- Re-surveyed model stack and benchmarks as of **2026-11-18** (`eval/scouting/2026-11-18-auto.md`, `docs/model-stack.md`).
+- Docs record measured `.runtime/` footprint (~18–20 GB total; never removed by `--cleanup`), Apple Silicon MPS boundaries vs. 16–24 GB+ CUDA GPUs, and proxy troubleshooting (`NO_PROXY=127.0.0.1,localhost` in `.env.example`).
 
 ## [0.3.0] - 2026-09-30
 

@@ -70,4 +70,5 @@ uv run python -m wm_platform.eval_runner --split all --providers auto,minimax_re
 
 ## 本轮记录
 
-- 2026-09-30：自动扫描 `eval/scouting/2026-09-30-auto.md`（本环境 GitHub 搜索 API 不可用，GitHub 部分人工补查）；人工结论见 model-stack.md "本轮结论"。
+- 2026-11-18：自动扫描 `eval/scouting/2026-11-18-auto.md`（覆盖近 55 天 Hugging Face / arXiv / GitHub）；升级锁定 ComfyUI `v0.45.0` 与原生核 `ComfyUI_DiffuEraser` `9ef5c12f`，新增 `Hint, Not Hole`、`StreamErase`、`PROVE`、`MFVSR` 等候选研判，详见 [model-stack.md](model-stack.md)。
+- 2026-09-30：历史扫描归档于 git 提交记录；结论见 CHANGELOG `0.3.0`。

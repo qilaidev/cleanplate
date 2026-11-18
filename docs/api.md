@@ -1,6 +1,6 @@
-# Cleanplate API | HTTP API 合同
+# Cleanplate API | HTTP API 与 OpenAPI 3.1 合同
 
-`Cleanplate` 的 HTTP 接口：异步提交、状态查询、结果与处理报告、provider 探测、回调。
+`Cleanplate`（v0.4.0）的 HTTP 接口：异步提交、状态查询、结果与处理报告、provider 探测、HMAC 回调。服务启动后自动暴露机器可读的 `/openapi.json`（含 `ApiKeyAuth` 鉴权定义与固定 `operationId`）及交互式文档 `/docs`。
 
 ## 0. 鉴权
 
@@ -65,7 +65,7 @@ export DWM_DEFAULT_API_KEY="replace-with-a-long-random-secret"
 - 当前支持 `multipart/form-data` 上传文件
 - 如果传 `input_path`，只允许 `DWM_STORAGE_ROOT` 下的本机文件路径
 - 如果传文件上传，服务端负责落盘到 `storage/inbox/`
-- 如果传 `callback_url`，默认只允许公网 `http/https` 地址；`localhost` 和私网 IP 默认拒绝
+- 如果传 `callback_url`，默认只允许公网全局可达 `http/https` 地址；`localhost`、私网、链路本地、CGNAT（`100.64.0.0/10`）与 IPv4-mapped IPv6 地址默认全部拒绝
 - 幂等: 相同 `Idempotency-Key` + 相同输入和参数 → 返回已有 job，不重复创建
 - 如果幂等键已使用但参数不同 → 返回 `409 IDEMPOTENCY_CONFLICT`
 - 幂等写入在数据库写事务内按租户串行化，避免并发请求用同一 key 创建多条不同 job
@@ -126,7 +126,7 @@ worker 在任务结束（成功或失败）时写入。下游应以 `status` + `
                 "mask_ratio": 0.012, "region_count": 2, "bbox": [24, 40, 1010, 1830],
                 "regions": [[24, 40, 180, 60], [860, 1790, 174, 80]], "temporal": false,
                 "message": "static overlay detected"},
-  "plan": {"chunks": 6, "chunk_frames": 81},
+  "plan": {"chunks": 6, "chunk_frames": 81, "inpainted_chunks": 6, "bypassed_chunks": 0},
   "attempts": [
     {"provider": "minimax_remover", "status": "failed", "error_code": "INPAINT_NO_EFFECT",
      "workflow_name": "minimax_remover_roi_api.json", "roi": "0,0,320,256;752,1664,320,256",

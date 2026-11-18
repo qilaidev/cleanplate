@@ -99,7 +99,7 @@ export DWM_AUTO_ALLOW_COPY_FALLBACK=false
 
 不要在本机文档演练里启动生产服务或下载真实权重；以上命令只在已租好的云 GPU 上执行。
 
-ComfyUI 没有官方 Docker 镜像，也没有内置鉴权：只监听 `127.0.0.1`（`--listen 127.0.0.1`），需要跨机访问时前面加带鉴权的反向代理。建议启动参数加 `--disable-auto-launch --disable-api-nodes`。
+ComfyUI 没有官方 Docker 镜像，也没有内置鉴权：`cleanplate-worker --start-comfyui` 默认固定传入 `--listen 127.0.0.1 --output-directory <comfy_spool> --disable-auto-launch --disable-api-nodes`（隔离临时推理产物并禁用外部云端 API 节点）；需要跨机访问时前面加带鉴权的反向代理。
 
 ## 3.2 吞吐与扩容
 
@@ -140,12 +140,12 @@ curl -fsS -H "X-API-Key: $DWM_DEFAULT_API_KEY" http://127.0.0.1:8000/v1/provider
 - `model_status`: 清单里每项权重是否已落到 `expected_path`。
 - `production_safety`: 生产配置风险，如默认开发 key、生产放开私网 callback、关闭限流、保留时间过短、inbox/outbox 所在磁盘空间不足（低于 5GB 或 10%）。
 
-### 4.1 `ComfyUI API returned 502` 不一定是服务故障
+### 4.1 环境变量代理与 `502 Bad Gateway` 排查
 
-环境里设了 `HTTP_PROXY` / `HTTPS_PROXY` 时，httpx 会把 `http://127.0.0.1:8188` 也送去代理，代理回一个 `502 Bad Gateway`（响应体是 `upstream connect failed: Connection refused`），`--doctor` 就把它显示成 `api_issue`，而真实情况可能只是 ComfyUI 没在监听那个端口。先用 curl 直接验一次：
+自 v0.4.0 起，Cleanplate 访问本机回环地址（`127.0.0.1` / `localhost` / `[::1]`）的 ComfyUI 时已自动在客户端设置 `trust_env=False` 绕过系统代理。但若你的 ComfyUI 部署在非回环内网地址，或你在终端直接用 `curl` 排查且环境里设了 `HTTP_PROXY` / `HTTPS_PROXY`，请求仍可能被送去代理并收到误导性的 `502 Bad Gateway`（响应体 `upstream connect failed: Connection refused`）。先用带 `--noproxy` 的 curl 直接验一次：
 
 ```sh
-curl -i http://127.0.0.1:8188/system_stats
+curl --noproxy '*' -i http://127.0.0.1:8188/system_stats
 ```
 
 排查顺序：

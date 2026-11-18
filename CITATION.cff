@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+title: "Cleanplate: Self-Hosted Async Video Watermark Detection, Multi-ROI Inpainting & Automated QA Pipeline"
+message: "If you use Cleanplate in your software, media pipeline, or research, please cite it using the metadata below."
+type: software
+version: "0.4.0"
+date-released: "2026-11-18"
+license: MIT
+repository-code: "https://github.com/qilaidev/cleanplate"
+url: "https://qilaidav.com/workspace/"
+abstract: >-
+  Cleanplate is an open-source, self-hosted asynchronous video watermark removal and
+  overlay inpainting service built on FastAPI, ComfyUI, OpenCV, and FFmpeg. Without
+  requiring manual bounding boxes, it performs CFR/SDR ingest normalization, single-pass
+  static/translucent OpenCV and ComfyUI native SAM 3.1 segmentation, 16px-aligned
+  multi-ROI crop chaining, 81-frame (4k+1) chunked diffusion inpainting with clean-chunk
+  GPU bypass, container-aware lossless audio muxing, and automated post-inpaint QA gates
+  before delivering clean outputs and structured JSON reports via polling or HMAC-SHA256 webhooks.
+authors:
+  - name: "qilaidev (qilai Studio)"
+    website: "https://qilaidav.com"
+keywords:
+  - video-watermark-removal
+  - watermark-detection
+  - video-inpainting
+  - subtitle-removal
+  - object-removal
+  - comfyui
+  - sam3
+  - fastapi
+  - ffmpeg
+  - opencv
+  - self-hosted

@@ -20,14 +20,14 @@
 
 | 步骤 | 代码 | 做什么 | 失败时 |
 | --- | --- | --- | --- |
-| 0. 探测 | `probe()` | 过滤链上不可运行的 provider | 全不可用 → `PROVIDER_NOT_AVAILABLE` |
-| 1. 规范化 | `media.normalize_input` | ffprobe；VFR/旋转/奇数尺寸/非 yuv420p 时转成 CFR 中间文件（x264 CRF 12，音轨原样） | `MEDIA_PROCESSING_FAILED` |
-| 2. 检测 | `watermark_detect.detect_watermark` | 只跑一次。`auto`：静态检测有把握就用；否则 SAM 3.1。输出 FFV1 无损 mask、外接框、每个区域的框、并集 mask | 两个检测器都跑且都为空 → `NO_WATERMARK_DETECTED`（或 passthrough）；其他 → `DETECTOR_LOW_CONFIDENCE` |
+| 0. 探测 | `probe()` | 过滤链上不可运行的 provider（本机回环地址自动绕过环境变量代理） | 全不可用 → `PROVIDER_NOT_AVAILABLE` |
+| 1. 规范化 | `media.normalize_input` | ffprobe；VFR/旋转/奇数尺寸/非 yuv420p 时转成 CFR 中间文件（x264 CRF 12，透传 SDR `bt709`/`setparams` 色彩标签，音轨原样拷贝） | `MEDIA_PROCESSING_FAILED` |
+| 2. 检测 | `watermark_detect.detect_watermark` | 只跑一次。`auto`：静态检测有把握就用；否则跑 SAM 3.1（上限 `<=180` 抽帧、`<=960p`、3 帧流式内存膨胀）。输出 FFV1 无损 mask、每个区域的框、并集 mask 与逐帧活跃表 `active_frames` | 两个检测器都跑且都为空 → `NO_WATERMARK_DETECTED`（或 passthrough）；其他 → `DETECTOR_LOW_CONFIDENCE` |
 | 3. 规划 | `media.plan_chunks`、`plan_minimax_rois` | 4k+1 帧分段（尾段回滑重叠）；每个水印一个 16 px 对齐的 ROI，相交则合并，总面积过大则整帧 | — |
-| 4. 修复 | provider `run()` → `run_comfy_chunks` | 每段一个 ComfyUI prompt（`comfy_graph.set_frame_window` 改两个加载节点的帧窗口；多 ROI 用 `expand_roi_chain` 串联） | 记录本次尝试，换下一个 provider |
-| 5. 拼接 | `media.assemble_output` | 裁掉重叠帧、拼接、回填原音轨，x264 CRF 16 | 同上 |
-| 6. 质检 | `quality_gate.check_output` | mask 内与输入的平均差 < 1.5 → `unchanged`；静态水印在输出上仍被检测到（与原 mask 重叠 ≥ 35%）→ `residual_suspected` | `unchanged` 换下一个；全部 unchanged → `INPAINT_NO_EFFECT`。只剩 residual → 按 `DWM_QA_RESIDUAL_POLICY` 标 `needs_review` 或 `QA_RESIDUAL_WATERMARK` |
-| 7. 收尾 | `_finish` | 结果移到 `outbox/`，写 `report`，删 `work/<job_id>/` | — |
+| 4. 修复 | provider `run()` → `run_comfy_chunks` | 动态水印若某分段 `active_frames` 全空，直接走 FFmpeg 切片跳过 GPU 推理（`bypassed_chunks`）；其余分段提交 ComfyUI prompt（多 ROI 用 `expand_roi_chain` 串联，超时自动 `/queue` 删除 + `/interrupt` 中断） | 记录本次尝试，清理 `comfy_spool`，换下一个 provider |
+| 5. 拼接 | `media.assemble_output` | 裁掉重叠帧、拼接、容器兼容音轨无损 `-c:a copy`（输入侧 `-t` 截断超长音频防止 `-shortest` 吞尾帧），透传 SDR 色彩标签并写 `+faststart` MP4（x264 CRF 16） | 同上 |
+| 6. 质检 | `quality_gate.check_output` | 仅对有水印帧抽样：mask 内与输入的平均差 < 1.5 → `unchanged`；静态水印在输出上仍被检测到（与原 mask 重叠 ≥ 35%）→ `residual_suspected` | `unchanged` 换下一个；全部 unchanged → `INPAINT_NO_EFFECT`。只剩 residual → 按 `DWM_QA_RESIDUAL_POLICY` 标 `needs_review` 或 `QA_RESIDUAL_WATERMARK` |
+| 7. 收尾 | `_finish` | 结果移到 `outbox/`，写 `report`，清理 `comfy_spool` 与 `work/<job_id>/` | — |
 
 `provider=auto` 的链是 `minimax_remover → comfy_diffueraser`，只有 `DWM_AUTO_ALLOW_COPY_FALLBACK=true` 才追加 `local_fallback`。指定单个 provider 时链只有它自己。
 
@@ -74,9 +74,9 @@ schema 变更只做加列（`db._ensure_job_columns`），旧库启动时自动�
 
 ## 工程约束
 
-1. API 进程不做推理；worker 崩溃不影响 API。
+1. API 进程不做推理；worker 崩溃不影响 API，阶段进度看门狗（`DWM_JOB_WATCHDOG_TIMEOUT_SECONDS`）在卡死时主动停心跳放锁以便自动回收。
 2. 用户不提供水印位置；`manual bbox/mask` 不进正式接口。
 3. 检测不确定就失败，不编造 mask；修复没效果就失败，不把原片当结果。
-4. provider 失败返回统一错误码，并在 `report.attempts` 里留下每一步。
-5. 回调默认拒绝 localhost/私网；`DWM_ENV=production` 禁止默认 key。
-6. 每个模型权重在清单里声明许可；`--doctor` 报告不可商用项。
+4. provider 失败返回统一错误码，并在 `report.attempts` 里留下每一步；ComfyUI 客户端超时必须主动中断孤儿 prompt。
+5. 回调默认拒绝 localhost、私网、CGNAT（`100.64.0.0/10`）、IPv4 映射 IPv6 及一切非全局公网地址；`DWM_ENV=production` 禁止默认 key。
+6. 每个模型权重在清单里声明许可（外部直链权重须声明 SHA-256）；`--doctor` 报告不可商用项。

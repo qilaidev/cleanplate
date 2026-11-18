@@ -4,10 +4,12 @@
   "name": "cleanplate",
   "alternateName": [
     "Cleanplate",
-    "Self-Hosted Video Watermark Removal Pipeline"
+    "Self-Hosted Video Watermark Removal Pipeline",
+    "开源自托管视频去水印与自动质检管线"
   ],
-  "description": "Self-hosted asynchronous video watermark detection, multi-ROI inpainting, and automated QA pipeline node built on FastAPI, ComfyUI, and FFmpeg. Automatically detects static or moving overlays without manual masking, chunks long clips into 81-frame windows, executes a multi-model inpainting fallback chain, remuxes audio, and delivers outputs and structured JSON reports via polling or HMAC-SHA256 webhooks.",
-  "version": "0.3.0",
+  "description": "Open-source, self-hosted asynchronous video watermark detection, multi-ROI diffusion inpainting, and automated QA pipeline node built on FastAPI, ComfyUI v0.45.0, OpenCV, and FFmpeg. Automatically detects static, semi-transparent, or moving watermarks and subtitles without manual bounding boxes, plans 16px-aligned ROI crops and 81-frame (4k+1) chunks with clean-chunk GPU bypass, executes a MiniMax-Remover -> DiffuEraser fallback chain, preserves lossless audio and SDR bt709 color metadata, runs post-inpaint QA gates, and delivers clean outputs plus structured JSON reports via OpenAPI REST polling or HMAC-SHA256 webhooks.",
+  "version": "0.4.0",
+  "dateModified": "2026-11-18",
   "codeRepository": "https://github.com/qilaidev/cleanplate",
   "issueTracker": "https://github.com/qilaidev/cleanplate/issues",
   "url": "https://qilaidav.com/workspace/",
@@ -16,14 +18,14 @@
     "Python"
   ],
   "runtimePlatform": [
-    "Python 3.11 / 3.12",
-    "FastAPI + Uvicorn",
-    "ComfyUI v0.38.1",
-    "FFmpeg"
+    "Python 3.11 / 3.12 / 3.13",
+    "FastAPI + Uvicorn (OpenAPI 3.1)",
+    "ComfyUI v0.45.0",
+    "FFmpeg / ffprobe"
   ],
-  "operatingSystem": "Linux / macOS (NVIDIA CUDA GPU required for production AI inference)",
+  "operatingSystem": "Linux / macOS (NVIDIA CUDA GPU 16-24 GB+ VRAM required for production AI inference)",
   "applicationCategory": "MultimediaApplication",
-  "applicationSubCategory": "Automated video watermark detection and inpainting service",
+  "applicationSubCategory": "Automated video watermark detection, subtitle/overlay erasure, and video inpainting API service",
   "developmentStatus": "active",
   "inLanguage": [
     "zh-CN",
@@ -33,42 +35,50 @@
   "releaseNotes": "https://github.com/qilaidev/cleanplate/blob/main/CHANGELOG.md",
   "softwareHelp": "https://github.com/qilaidev/cleanplate/blob/main/docs/api.md",
   "keywords": [
-    "watermark-detection",
     "watermark-removal",
+    "watermark-detection",
     "video-inpainting",
+    "subtitle-removal",
+    "object-removal",
+    "video-restoration",
     "video-processing",
     "comfyui",
+    "sam3",
+    "minimax-remover",
+    "diffueraser",
+    "propainter",
     "fastapi",
     "ffmpeg",
+    "opencv",
     "async-worker",
     "self-hosted",
-    "sam3",
     "python",
     "sqlite",
     "ai-pipeline",
     "computer-vision",
-    "video-editing",
-    "视频去水印",
-    "自托管媒体管线"
+    "开源视频去水印",
+    "自托管去水印API",
+    "视频去台标去字幕"
   ],
   "featureList": [
-    "FFmpeg ingest normalization converting VFR, rotated, odd-dimension, or non-yuv420p inputs to CFR intermediates",
-    "Single-pass automatic watermark detection using CPU OpenCV static/persistent-edge detection with ComfyUI native SAM 3.1 fallback",
-    "Per-watermark 16px-aligned multi-ROI crop chaining and 81-frame (4k+1) chunk planning",
-    "Multi-model inpainting fallback chain (MiniMax-Remover -> DiffuEraser) plus local_fallback for pipeline smoke testing",
-    "Automated post-inpaint QA gate checking mask_mean_abs_diff (INPAINT_NO_EFFECT) and residual_overlap (needs_review / QA_RESIDUAL_WATERMARK)",
-    "Asynchronous FastAPI job queue with SQLite WAL persistence, Idempotency-Key support, per-tenant rate limiting, and HMAC-SHA256 webhooks",
-    "CLI tools for runtime installation, readiness/license auditing (cleanplate-worker --doctor), cleanup, and model scouting (cleanplate-scout)"
+    "FFmpeg CFR ingest normalization for VFR, rotated, odd-dimension, or non-yuv420p clips with SDR bt709/smpte170m color-tag preservation",
+    "Single-pass automatic watermark detection combining CPU OpenCV static/persistent-edge voting and VRAM-bounded ComfyUI native SAM 3.1 tracking (<=180 strided frames at <=960p, 3-frame RAM temporal streaming)",
+    "Per-watermark 16px-aligned multi-ROI crop chaining (expand_roi_chain) and 81-frame (4k+1) chunk planning with zero-inference clean-chunk GPU bypass (bypassed_chunks) on watermark-free windows",
+    "Multi-model inpainting fallback chain (MiniMax-Remover 1.3B -> ComfyUI-native ModelPatcher DiffuEraser + ProPainter) plus CPU local_fallback for pipeline smoke verification",
+    "Container-aware lossless audio stream copy (-c:a copy), demux -t audio clamping preventing tail-frame truncation, SDR setparams color preservation, and +faststart MP4 assembly",
+    "Automated post-inpaint QA gate checking mask_mean_abs_diff (INPAINT_NO_EFFECT failover) and static residual_overlap (needs_review / QA_RESIDUAL_WATERMARK)",
+    "Agent-ready FastAPI OpenAPI 3.1 queue (/openapi.json) with SHA-256 X-API-Key auth, Idempotency-Key serialization, per-tenant 429 Retry-After rate limits, stage-progress worker watchdog, isolated ComfyUI spool with /interrupt orphan cleanup, loopback proxy bypass, and CGNAT/IPv6-hardened HMAC-SHA256 webhooks",
+    "CLI suite for SHA-256 verified Hugging Face & GitHub Release weight installation, commercial license auditing (cleanplate-worker --doctor), retention cleanup, clean-plate PSNR/SSIM/flicker evaluation, and live model scouting (cleanplate-scout)"
   ],
   "softwareRequirements": [
-    "Python >= 3.11, < 3.13",
+    "Python >= 3.11, < 3.14",
     "uv package manager",
     "ffmpeg and ffprobe in PATH",
-    "NVIDIA CUDA GPU (~16-24 GB+ VRAM) and ComfyUI v0.38.1 for real AI inpainting"
+    "NVIDIA CUDA GPU (~16-24 GB+ VRAM) and ComfyUI v0.45.0 for real AI video inpainting"
   ],
   "author": [
     {
-      "@type": "Person",
+      "@type": "Organization",
       "name": "qilaidev",
       "url": "https://github.com/qilaidev",
       "sameAs": [
@@ -79,7 +89,7 @@
   ],
   "maintainer": [
     {
-      "@type": "Person",
+      "@type": "Organization",
       "name": "qilaidev",
       "url": "https://github.com/qilaidev",
       "sameAs": [
