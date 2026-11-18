@@ -7,10 +7,19 @@ from urllib.parse import urlparse
 from wm_platform.config import Settings
 from wm_platform.errors import AppError
 
+_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+_BENCHMARK_NETWORK = ipaddress.ip_network("198.18.0.0/15")
+
 
 def _is_forbidden_address(address: ipaddress._BaseAddress) -> bool:
+    mapped = getattr(address, "ipv4_mapped", None)
+    if mapped is not None:
+        return _is_forbidden_address(mapped)
+    if isinstance(address, ipaddress.IPv4Address) and (address in _CGNAT_NETWORK or address in _BENCHMARK_NETWORK):
+        return True
     return (
-        address.is_private
+        not address.is_global
+        or address.is_private
         or address.is_loopback
         or address.is_link_local
         or address.is_reserved

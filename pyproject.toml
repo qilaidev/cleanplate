@@ -1,19 +1,39 @@
 [project]
 name = "cleanplate"
-version = "0.3.0"
-description = "Self-hosted video watermark removal service for automated workflows: auto-detect, inpaint and quality-check via ComfyUI"
+version = "0.4.0"
+description = "Self-hosted async video watermark detection, multi-ROI inpainting, and automated QA pipeline node built on FastAPI, ComfyUI, and FFmpeg"
 readme = "README.md"
 license = {file = "LICENSE"}
 authors = [{name = "qilaidev"}]
-requires-python = ">=3.11,<3.13"
-keywords = ["watermark-removal", "video-inpainting", "comfyui", "fastapi", "self-hosted"]
+requires-python = ">=3.11,<3.14"
+keywords = [
+  "watermark-removal",
+  "watermark-detection",
+  "video-inpainting",
+  "subtitle-removal",
+  "object-removal",
+  "comfyui",
+  "sam3",
+  "fastapi",
+  "ffmpeg",
+  "opencv",
+  "async-worker",
+  "self-hosted",
+]
 classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Framework :: FastAPI",
   "Topic :: Multimedia :: Video",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Scientific/Engineering :: Image Processing",
   "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
 ]
 dependencies = [
@@ -33,10 +53,19 @@ dev = [
   "ruff>=0.16",
 ]
 
+[dependency-groups]
+dev = [
+  "pytest>=8.4.0",
+  "ruff>=0.16",
+]
+
 [project.urls]
 Homepage = "https://github.com/qilaidev/cleanplate"
+Documentation = "https://github.com/qilaidev/cleanplate/blob/main/docs/api.md"
 Repository = "https://github.com/qilaidev/cleanplate"
 Issues = "https://github.com/qilaidev/cleanplate/issues"
+Changelog = "https://github.com/qilaidev/cleanplate/blob/main/CHANGELOG.md"
+Security = "https://github.com/qilaidev/cleanplate/blob/main/SECURITY.md"
 
 [project.scripts]
 cleanplate-api = "wm_platform.cli_api:main"

@@ -7,7 +7,7 @@ from urllib.parse import urljoin
 
 import httpx
 
-from wm_platform.comfy_runtime import start_comfyui, wait_for_comfyui
+from wm_platform.comfy_runtime import open_comfy_http_client, start_comfyui, wait_for_comfyui
 from wm_platform.config import Settings
 from wm_platform.errors import AppError
 from wm_platform.models import JobRecord
@@ -195,7 +195,7 @@ class ComfyJobClient:
         *,
         allow_images: bool = False,
     ) -> Path:
-        with httpx.Client(timeout=None) as client:
+        with open_comfy_http_client(httpx.Client, self.settings.comfyui_api_url, timeout=None) as client:
             self.ensure_ready(client)
             queued_id = self.queue_prompt(client, prompt, prompt_id)
             artifact = self.wait_for_artifact(client, queued_id, allow_images=allow_images)

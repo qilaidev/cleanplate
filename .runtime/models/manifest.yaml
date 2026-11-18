@@ -1,6 +1,6 @@
 # license / commercial_use are checked by `cleanplate-worker --doctor` (licenses section).
 # commercial_use: false means the weights may not be used for commercial work; null = unclear, verify.
-# Re-verified 2026-09-30 against each Hugging Face / GitHub model card.
+# Re-verified 2026-11-18 against each Hugging Face / GitHub model card.
 models:
   - name: diffueraser-unet-brushnet
     required: true

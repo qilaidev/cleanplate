@@ -2,12 +2,20 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from fastapi import Depends, Header
+from fastapi import Depends, Security
+from fastapi.security import APIKeyHeader
 
 from wm_platform.bootstrap import bootstrap
 from wm_platform.config import Settings, load_settings
 from wm_platform.errors import AppError
 from wm_platform.repository import JobRepository
+
+API_KEY_SCHEME = APIKeyHeader(
+    name="X-API-Key",
+    scheme_name="ApiKeyAuth",
+    auto_error=False,
+    description="Tenant API key (stored server-side as a SHA-256 digest).",
+)
 
 
 @lru_cache(maxsize=1)
@@ -25,7 +33,7 @@ def init_runtime() -> None:
 
 
 def get_tenant_id(
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    x_api_key: str | None = Security(API_KEY_SCHEME),
     repository: JobRepository = Depends(get_repository),
 ) -> str:
     return _authenticate_tenant_id(x_api_key=x_api_key, repository=repository)

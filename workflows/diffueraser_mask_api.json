@@ -91,7 +91,8 @@
     "class_type": "DiffuEraser_Loader",
     "inputs": {
       "vae": "__VAE_MODEL__",
-      "lora": "__LORA_MODEL__"
+      "lora": "__LORA_MODEL__",
+      "dtype": "fp16"
     }
   },
   "9": {
@@ -129,9 +130,9 @@
       ],
       "steps": 2,
       "seed": "__SEED__",
+      "nframes": 22,
+      "guidance_scale": 0.0,
       "save_result_video": false,
-      "unet_group": 5,
-      "brush_group": 5,
       "blended": false
     }
   },

@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import ValidationError
 
+from wm_platform import __version__
 from wm_platform.api_validation import (
     blank_to_none,
     normalize_callback_url,
@@ -27,13 +28,15 @@ from wm_platform.errors import AppError, error_payload
 from wm_platform.media import probe_video_duration_seconds
 from wm_platform.models import (
     CancelJobResponse,
+    ErrorResponse,
+    HealthResponse,
     JobCreate,
     JobListResponse,
     JobRecord,
     JobResponse,
     JobResultResponse,
     JobSubmitResponse,
-    ProviderProbeResult,
+    ProviderListResponse,
 )
 from wm_platform.provider_runtime import ProviderRuntime
 from wm_platform.rate_limit import enforce_submit_rate_limit
@@ -86,13 +89,39 @@ def _same_quality_mode(
     return existing == requested
 
 
+OPENAPI_TAGS = [
+    {
+        "name": "health",
+        "description": "Liveness, SQLite WAL connectivity, and provider/license readiness probes.",
+    },
+    {
+        "name": "jobs",
+        "description": "Asynchronous video watermark detection, multi-ROI inpainting, QA verification, and artifact retrieval.",
+    },
+]
+
+
 def create_app() -> FastAPI:
     @asynccontextmanager
     async def _lifespan(_: FastAPI):
         init_runtime()
         yield
 
-    app = FastAPI(title="Cleanplate API", version="0.3.0", lifespan=_lifespan)
+    app = FastAPI(
+        title="Cleanplate API",
+        summary="Self-hosted asynchronous video watermark detection, multi-ROI inpainting, and QA verification service.",
+        description=(
+            "REST queue contract for Cleanplate. Submits video clips via `POST /v1/jobs`, runs automatic "
+            "OpenCV + ComfyUI SAM 3.1 watermark detection, 81-frame (`4k+1`) multi-ROI diffusion inpainting "
+            "with clean-chunk GPU bypass, lossless audio/SDR color-tag preservation, and post-inpaint QA gates, "
+            "then delivers artifacts and structured JSON `report` payloads via polling or HMAC-SHA256 webhooks."
+        ),
+        version=__version__,
+        contact={"name": "qilaidev", "url": "https://github.com/qilaidev/cleanplate"},
+        license_info={"name": "MIT License", "url": "https://opensource.org/licenses/MIT"},
+        openapi_tags=OPENAPI_TAGS,
+        lifespan=_lifespan,
+    )
 
     @app.exception_handler(AppError)
     async def _handle_app_error(_: Request, exc: AppError) -> JSONResponse:
@@ -121,14 +150,32 @@ def create_app() -> FastAPI:
             content=error_payload("INTERNAL_ERROR", "internal server error"),
         )
 
-    @app.get("/healthz")
-    def healthz() -> dict[str, str]:
+    @app.get(
+        "/healthz",
+        response_model=HealthResponse,
+        tags=["health"],
+        operation_id="healthCheck",
+        summary="Check API and SQLite database health",
+    )
+    def healthz() -> HealthResponse:
         settings = get_settings()
         with db_connection(settings) as connection:
             connection.execute("SELECT 1").fetchone()
-        return {"status": "ok", "db": "ok"}
+        return HealthResponse(status="ok", db="ok")
 
-    @app.post("/v1/jobs", response_model=JobSubmitResponse)
+    @app.post(
+        "/v1/jobs",
+        response_model=JobSubmitResponse,
+        tags=["jobs"],
+        operation_id="submitJob",
+        summary="Submit an asynchronous video watermark removal job",
+        responses={
+            400: {"model": ErrorResponse, "description": "Validation, media type, file size, or duration error"},
+            401: {"model": ErrorResponse, "description": "Missing or invalid X-API-Key"},
+            409: {"model": ErrorResponse, "description": "Idempotency-Key reused with different parameters"},
+            429: {"model": ErrorResponse, "description": "Per-tenant submit rate limit exceeded (includes Retry-After)"},
+        },
+    )
     def submit_job(
         media_type: str = Form(...),
         provider: str = Form(default="auto"),
@@ -230,7 +277,17 @@ def create_app() -> FastAPI:
         _discard_unused_upload(file, final_input_path, created)
         return _submit_response(created)
 
-    @app.get("/v1/jobs/{job_id}", response_model=JobResponse)
+    @app.get(
+        "/v1/jobs/{job_id}",
+        response_model=JobResponse,
+        tags=["jobs"],
+        operation_id="getJob",
+        summary="Get job status, error state, and structured QA report",
+        responses={
+            401: {"model": ErrorResponse, "description": "Missing or invalid X-API-Key"},
+            404: {"model": ErrorResponse, "description": "Job not found for tenant"},
+        },
+    )
     def get_job(
         job_id: str,
         tenant_id: str = Depends(get_tenant_id),
@@ -241,7 +298,14 @@ def create_app() -> FastAPI:
             raise AppError("JOB_NOT_FOUND", "job not found", 404)
         return JobResponse.from_record(job)
 
-    @app.get("/v1/jobs", response_model=JobListResponse)
+    @app.get(
+        "/v1/jobs",
+        response_model=JobListResponse,
+        tags=["jobs"],
+        operation_id="listJobs",
+        summary="List tenant jobs with optional status and provider filters",
+        responses={401: {"model": ErrorResponse, "description": "Missing or invalid X-API-Key"}},
+    )
     def list_jobs(
         status: str | None = None,
         provider: str | None = None,
@@ -270,7 +334,18 @@ def create_app() -> FastAPI:
             has_more=len(records) > page_size,
         )
 
-    @app.get("/v1/jobs/{job_id}/result", response_model=JobResultResponse)
+    @app.get(
+        "/v1/jobs/{job_id}/result",
+        response_model=JobResultResponse,
+        tags=["jobs"],
+        operation_id="getJobResult",
+        summary="Get final job result metadata, download URL, and QA report",
+        responses={
+            401: {"model": ErrorResponse, "description": "Missing or invalid X-API-Key"},
+            404: {"model": ErrorResponse, "description": "Job not found for tenant"},
+            410: {"model": ErrorResponse, "description": "Succeeded job artifact was pruned or moved"},
+        },
+    )
     def get_job_result(
         job_id: str,
         tenant_id: str = Depends(get_tenant_id),
@@ -292,7 +367,18 @@ def create_app() -> FastAPI:
             report=job.report,
         )
 
-    @app.get("/v1/jobs/{job_id}/artifact")
+    @app.get(
+        "/v1/jobs/{job_id}/artifact",
+        tags=["jobs"],
+        operation_id="downloadJobArtifact",
+        summary="Download the clean output video artifact for a succeeded job",
+        responses={
+            401: {"model": ErrorResponse, "description": "Missing or invalid X-API-Key"},
+            404: {"model": ErrorResponse, "description": "Job not found for tenant"},
+            409: {"model": ErrorResponse, "description": "Job has not succeeded yet"},
+            410: {"model": ErrorResponse, "description": "Artifact file missing or outside storage root"},
+        },
+    )
     def download_job_artifact(
         job_id: str,
         tenant_id: str = Depends(get_tenant_id),
@@ -317,7 +403,18 @@ def create_app() -> FastAPI:
         }.get(artifact.suffix.lower(), "application/octet-stream")
         return FileResponse(path=artifact, filename=artifact.name, media_type=media_type)
 
-    @app.post("/v1/jobs/{job_id}/cancel", response_model=CancelJobResponse)
+    @app.post(
+        "/v1/jobs/{job_id}/cancel",
+        response_model=CancelJobResponse,
+        tags=["jobs"],
+        operation_id="cancelJob",
+        summary="Cancel a queued job before execution starts",
+        responses={
+            401: {"model": ErrorResponse, "description": "Missing or invalid X-API-Key"},
+            404: {"model": ErrorResponse, "description": "Job not found for tenant"},
+            409: {"model": ErrorResponse, "description": "Job is already running or finalized"},
+        },
+    )
     def cancel_job(
         job_id: str,
         tenant_id: str = Depends(get_tenant_id),
@@ -330,10 +427,17 @@ def create_app() -> FastAPI:
             raise AppError("JOB_NOT_CANCELABLE", f"job in status '{job.status}' cannot be canceled", 409)
         return CancelJobResponse(job_id=job.job_id, status=job.status, updated_at=job.updated_at)
 
-    @app.get("/v1/providers")
-    def list_providers(_: str = Depends(get_tenant_id)) -> dict[str, list[ProviderProbeResult]]:
+    @app.get(
+        "/v1/providers",
+        response_model=ProviderListResponse,
+        tags=["health"],
+        operation_id="listProviders",
+        summary="Probe installed/runnable status of all watermark removal providers",
+        responses={401: {"model": ErrorResponse, "description": "Missing or invalid X-API-Key"}},
+    )
+    def list_providers(_: str = Depends(get_tenant_id)) -> ProviderListResponse:
         providers = ProviderRuntime(get_settings()).probe_all()
-        return {"providers": providers}
+        return ProviderListResponse(providers=providers)
 
     return app
 

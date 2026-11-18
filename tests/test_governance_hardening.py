@@ -743,7 +743,7 @@ def test_zero_gpu_chunk_bypass_skips_empty_windows_and_passes_active_frame_qa(
 
 def test_fastapi_version_and_eval_settings_isolation(settings):
     app = create_app()
-    assert app.version == "0.3.0"
+    assert app.version == "0.4.0"
 
     eval_settings = build_eval_settings(settings)
     try:
@@ -753,3 +753,74 @@ def test_fastapi_version_and_eval_settings_isolation(settings):
         assert eval_settings.comfyui_output_dir.is_relative_to(eval_settings.storage_root)
     finally:
         shutil.rmtree(eval_settings.storage_root, ignore_errors=True)
+
+
+def test_callback_ssrf_blocks_cgnat_benchmark_and_ipv4_mapped_ipv6(settings):
+    from wm_platform.callbacks import validate_callback_url
+
+    strict = replace(settings, allow_private_callback_urls=False)
+    for blocked_url in (
+        "https://100.64.0.1/hook",
+        "https://100.127.255.254/hook",
+        "https://198.18.0.10/hook",
+        "https://[::ffff:127.0.0.1]/hook",
+        "https://[::ffff:100.64.0.1]/hook",
+        "https://[::1]/hook",
+    ):
+        with pytest.raises(AppError) as exc_info:
+            validate_callback_url(blocked_url, strict)
+        assert exc_info.value.error_code == "VALIDATION_ERROR"
+
+    assert validate_callback_url("https://93.184.216.34/webhook", strict) == "https://93.184.216.34/webhook"
+
+
+def test_comfyui_command_disables_api_nodes_and_parses_trailing_slash_or_ipv6_ports(settings):
+    from wm_platform.comfy_runtime import is_loopback_url, open_comfy_http_client
+
+    cmd_slash = build_comfyui_command(replace(settings, comfyui_api_url="http://127.0.0.1:8189/"))
+    assert "--disable-api-nodes" in cmd_slash
+    assert cmd_slash[cmd_slash.index("--port") + 1] == "8189"
+
+    cmd_ipv6 = build_comfyui_command(replace(settings, comfyui_api_url="http://[::1]:8192/api"))
+    assert cmd_ipv6[cmd_ipv6.index("--port") + 1] == "8192"
+
+    assert is_loopback_url("http://127.0.0.1:8188") is True
+    assert is_loopback_url("http://localhost:8188/") is True
+    assert is_loopback_url("http://[::1]:8188") is True
+    assert is_loopback_url("http://gpu-worker.internal:8188") is False
+
+    import httpx
+
+    with open_comfy_http_client(httpx.Client, "http://127.0.0.1:8188") as local_client:
+        assert local_client._trust_env is False
+    with open_comfy_http_client(httpx.Client, "https://example.com:8188") as remote_client:
+        assert remote_client._trust_env is True
+
+
+def test_openapi_contract_exposes_api_key_security_and_stable_operation_ids():
+    app = create_app()
+    schema = app.openapi()
+    assert schema["info"]["version"] == "0.4.0"
+    assert schema["info"]["license"]["name"] == "MIT License"
+    schemes = schema.get("components", {}).get("securitySchemes", {})
+    assert "ApiKeyAuth" in schemes
+    assert schemes["ApiKeyAuth"]["type"] == "apiKey"
+    assert schemes["ApiKeyAuth"]["in"] == "header"
+    assert schemes["ApiKeyAuth"]["name"] == "X-API-Key"
+
+    operation_ids = {
+        method_spec.get("operationId")
+        for path_spec in schema.get("paths", {}).values()
+        for method, method_spec in path_spec.items()
+        if method in {"get", "post", "put", "delete", "patch"} and isinstance(method_spec, dict)
+    }
+    assert {
+        "healthCheck",
+        "submitJob",
+        "getJob",
+        "listJobs",
+        "getJobResult",
+        "downloadJobArtifact",
+        "cancelJob",
+        "listProviders",
+    }.issubset(operation_ids)

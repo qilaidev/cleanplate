@@ -129,6 +129,20 @@ class ProviderProbeResult(BaseModel):
     details: dict[str, Any] | None = None
 
 
+class ProviderListResponse(BaseModel):
+    providers: list[ProviderProbeResult]
+
+
+class HealthResponse(BaseModel):
+    status: Literal["ok"] = "ok"
+    db: Literal["ok"] = "ok"
+
+
+class ErrorResponse(BaseModel):
+    error_code: str
+    error_message: str
+
+
 class JobResultResponse(BaseModel):
     job_id: str
     status: JobStatus

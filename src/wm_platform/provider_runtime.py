@@ -20,6 +20,7 @@ import httpx
 
 from wm_platform.comfy_graph import expand_roi_chain, set_frame_window
 from wm_platform.comfy_jobs import ComfyJobClient
+from wm_platform.comfy_runtime import comfy_http_get, open_comfy_http_client
 from wm_platform.config import QUALITY_MODE_VALUES, Settings
 from wm_platform.errors import AppError
 from wm_platform.media import (
@@ -236,7 +237,7 @@ def run_comfy_chunks(
     bypassed_chunks = 0
     inpainted_chunks = 0
     try:
-        with httpx.Client(timeout=None) as client:
+        with open_comfy_http_client(httpx.Client, settings.comfyui_api_url, timeout=None) as client:
             for index, chunk in enumerate(chunks):
                 if progress_callback is not None:
                     progress_callback(f"{label}:chunk:{index}/{len(chunks)}")
@@ -502,7 +503,7 @@ class _ComfyDiffuEraserProvider(_BaseProvider):
 
     def _api_issue(self) -> str | None:
         try:
-            response = httpx.get(urljoin(self.settings.comfyui_api_url, "/system_stats"), timeout=2.0)
+            response = comfy_http_get(httpx.get, urljoin(self.settings.comfyui_api_url, "/system_stats"), timeout=2.0)
         except Exception:
             return "ComfyUI API unreachable"
         if response.status_code != 200:
@@ -812,7 +813,7 @@ class _MiniMaxRemoverProvider(_BaseProvider):
 
     def _api_issue(self) -> str | None:
         try:
-            response = httpx.get(urljoin(self.settings.comfyui_api_url, "/system_stats"), timeout=2.0)
+            response = comfy_http_get(httpx.get, urljoin(self.settings.comfyui_api_url, "/system_stats"), timeout=2.0)
         except Exception:
             return "ComfyUI API unreachable"
         if response.status_code != 200:

@@ -1,16 +1,48 @@
 from __future__ import annotations
 
 import fcntl
+import ipaddress
 import logging
 import subprocess
 import time
 from pathlib import Path
+from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
 from wm_platform.config import Settings
 
 logger = logging.getLogger(__name__)
+
+
+def is_loopback_url(api_url: str) -> bool:
+    """Return True when `api_url` targets localhost or an IPv4/IPv6 loopback literal."""
+    host = (urlparse(api_url).hostname or "").strip().lower()
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    mapped = getattr(addr, "ipv4_mapped", None)
+    return bool(addr.is_loopback or (mapped is not None and mapped.is_loopback))
+
+
+def open_comfy_http_client(client_cls: Any, api_url: str, *, timeout: float | None = None):
+    """Instantiate an HTTP client, bypassing HTTP_PROXY/HTTPS_PROXY on loopback targets."""
+    if client_cls is httpx.Client:
+        return client_cls(timeout=timeout, trust_env=not is_loopback_url(api_url))
+    return client_cls(timeout=timeout)
+
+
+def comfy_http_get(get_fn: Any, url: str, *, timeout: float = 2.0):
+    """Perform a GET probe against ComfyUI, bypassing env proxies on loopback targets."""
+    if get_fn is httpx.get:
+        return get_fn(url, timeout=timeout, trust_env=not is_loopback_url(url))
+    return get_fn(url, timeout=timeout)
 
 
 def comfy_python(settings: Settings) -> Path:
@@ -32,13 +64,14 @@ def build_comfyui_command(settings: Settings) -> list[str]:
         "--output-directory",
         str(settings.comfyui_output_dir),
         "--disable-auto-launch",
+        "--disable-api-nodes",
     ]
 
 
 def comfyui_health(settings: Settings) -> dict[str, object]:
     url = f"{settings.comfyui_api_url.rstrip('/')}/system_stats"
     try:
-        response = httpx.get(url, timeout=2.0)
+        response = comfy_http_get(httpx.get, url, timeout=2.0)
         response.raise_for_status()
         payload = response.json()
         return {
@@ -116,7 +149,13 @@ def start_comfyui(settings: Settings) -> subprocess.Popen[str]:
 
 
 def _port_from_api_url(api_url: str) -> int:
-    stripped = api_url.rsplit(":", 1)
+    parsed = urlparse(api_url.strip())
+    try:
+        if parsed.port is not None:
+            return int(parsed.port)
+    except ValueError:
+        pass
+    stripped = api_url.rstrip("/").rsplit(":", 1)
     if len(stripped) == 2 and stripped[1].isdigit():
         return int(stripped[1])
     return 8188

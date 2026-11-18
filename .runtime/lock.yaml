@@ -1,22 +1,23 @@
-# Pins reviewed 2026-09-30. ComfyUI must be >= 2026-04-23 (PR #13408) for the native
-# SAM 3.1 nodes used by workflows/sam3_native_api.json. v0.38.1: comfy_extras/nodes_sam3.py
-# is unchanged since v0.35.0; the repo moved to the Comfy-Org organisation.
-# ComfyUI-MiniMax-Remover has had no commits since 2025-06-27 and swallows inference
-# exceptions (returns the input frames); the quality gate in quality_gate.py catches that.
+# Pins reviewed 2026-11-18. ComfyUI must be >= 2026-04-23 (PR #13408) for the native
+# SAM 3.1 nodes used by workflows/sam3_native_api.json. v0.45.0: comfy_extras/nodes_sam3.py
+# preserves SAM3_VideoTrack / SAM3_TrackToMask and supports ComfyUI V3 io.ComfyNode schemas.
+# ComfyUI_DiffuEraser 9ef5c12f (2026-10-23) migrated to ComfyUI-native ModelPatcher without
+# diffusers dependency conflicts. ComfyUI-MiniMax-Remover has had no commits since 2025-06-27
+# and swallows inference exceptions (returns the input frames); quality_gate.py catches that.
 runtime:
   python: "3.12"
 repositories:
   comfyui:
     url: https://github.com/Comfy-Org/ComfyUI.git
-    ref: 20ca544ee0436721d8eb5f544665e490609f72c8  # v0.38.1
+    ref: 989d93d0d968e704c589ce0146bb18c77f6b50cc  # v0.45.0 (2026-11-10)
     target: .runtime/ComfyUI
   diffueraser:
     url: https://github.com/smthemex/ComfyUI_DiffuEraser.git
-    ref: c8461876ad092206ccb1f951bb2ef5820ad7028f  # 2026-03-27
+    ref: 9ef5c12ffc3c5feabc93918863ae4aadbf65ce10  # 2026-10-23, ComfyUI-native ModelPatcher core
     target: .runtime/ComfyUI/custom_nodes/ComfyUI-DiffuEraser
   videohelpersuite:
     url: https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git
-    ref: 4d907bee61e92c2e65af3bd6383a4e4d356126d1  # 2026-09-01, HEAD at 2026-09-30
+    ref: 4d907bee61e92c2e65af3bd6383a4e4d356126d1  # 2026-09-02, HEAD at 2026-11-18
     target: .runtime/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite
   minimax_remover:
     url: https://github.com/1038lab/ComfyUI-MiniMax-Remover.git
